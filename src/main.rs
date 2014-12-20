@@ -1,44 +1,37 @@
 extern crate hyparview;
 
-use std::collections::BTreeMap;
-use std::io::{TcpListener,TcpStream,BufferedReader};
+use std::io::{TcpListener,TcpStream};
 use std::io::{Acceptor,Listener};
-use std::io::File;
-use std::io::net::ip::{Ipv4Addr, SocketAddr};
-use std::str;
+use std::io::net::ip::{SocketAddr};
 use std::thread::Thread;
 
 // heavily influenced by hyper HTTP lib: https://github.com/hyperium/hyper/blob/master/src/server/mod.rs
 fn main() {
     println!("stating polaris");
     let config = Config::load_config("/opt/dev/projects/rust/polaris/config/config.toml".as_slice());
+    let sender = hyparview::start_service(config.local_addr, config.seeds);
 
-    // set up some networking infra
-
-    // kick off hyparview, get back a channel 
-    hyparview::start_service(config.local_socket, config.seeds);
-
-    //listen for messages and pass them over the channel
-
-    let listener = TcpListener::bind("127.0.0.1:9090");
+    let listener = TcpListener::bind("127.0.0.1:9091");
     let mut acceptor = listener.listen();
-    let mut captured = acceptor.clone();
-
-    for stream in acceptor.incoming() {
-        match stream {
+    for conn in acceptor.incoming() {
+        println!("aceepting an incoming!");
+        let sender = sender.clone();
+        match conn {
             Err(e) => println!("failure with acceptor: {}", e),
-            Ok(stream) => Thread::spawn(move || {
-                let stream = stream.clone();
-                handle_client(stream);
-            })
+            // TODO: this builds a new thread per client, maybe just want some TaskPool/handler instead - or mio (https://github.com/carllerche/mio)
+            Ok(conn) => Thread::spawn(move || {
+                let conn = conn.clone();
+                handle_client(conn, sender);
+            }).detach(),
         }
     }
 }
 
-fn handle_client(mut stream: TcpStream) {
+fn handle_client(mut stream: TcpStream, sender: Sender<int>) {
     println!("hello client");
-    // deserialize message 
-    Ok
+    // TODO: deserialize message 
+
+    sender.send(42);
 }
 
 struct Config {
@@ -61,10 +54,9 @@ impl Config {
         // };
 
         let local_addr : SocketAddr = from_str("127.0.0.1:9090").expect("malformed address");
-        let mut seeds : Vec<SocketAddr>;
+        let mut seeds = Vec::new();
         seeds.push(from_str("127.0.0.1:9090").expect("malformed address"));
         seeds.push(from_str("127.0.1.1:9090").expect("malformed address"));
-//        seeds.push(SocketAddr = from_str("127.0.0.1:9090").expect("malformed address"));
         Config { local_addr: local_addr, seeds: seeds }
     }
 }
