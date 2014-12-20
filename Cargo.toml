@@ -1,0 +1,11 @@
+[package]
+
+name = "polaris"
+version = "0.0.1"
+authors = ["Jason Brown <jasedbrown@gmail.com>"]
+
+[[bin]]
+name = "polaris"
+
+[dependencies.hyparview]
+path = "src/hyparview"

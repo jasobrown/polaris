@@ -1,0 +1,9 @@
+[package]
+name = "hyparview"
+version = "0.0.1"
+authors = ["Jason Brown <jasedbrown@gmail.com>"]
+
+[lib]
+name = "hyparview"
+path = "lib.rs"
+
