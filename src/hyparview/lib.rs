@@ -7,15 +7,15 @@ use std::thread::Thread;
 
 struct HyParViewContext {
     local: SocketAddr,
-    seeds: Vec<SocketAddr>,
+    contact_nodes: Vec<SocketAddr>,
     active_view: Vec<SocketAddr>,
     passive_view: Vec<SocketAddr>
 }
 impl HyParViewContext {
-    fn new(local: SocketAddr, seeds: Vec<SocketAddr>) -> HyParViewContext {
+    fn new(local: SocketAddr, contact_nodes: Vec<SocketAddr>) -> HyParViewContext {
         HyParViewContext { 
             local: local,
-            seeds: seeds,
+            contact_nodes: contact_nodes,
             active_view: Vec::new(),
             passive_view: Vec::new(),
         }
@@ -43,9 +43,9 @@ impl HyParViewContext {
     }
 }
 
-pub fn start_service(local: SocketAddr, seeds: Vec<SocketAddr>) -> Sender<int> {
+pub fn start_service(local: SocketAddr, contact_nodes: Vec<SocketAddr>) -> Sender<int> {
     println!("starting up hyparview");
-    let hpv = HyParViewContext::new(local, seeds);
+    let hpv = HyParViewContext::new(local, contact_nodes);
     let ctx = Arc::new(hpv);
 
     let ctx_clone = ctx.clone();
