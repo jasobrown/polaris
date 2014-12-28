@@ -10,32 +10,33 @@ mod config;
 
 // heavily influenced by hyper HTTP lib: https://github.com/hyperium/hyper/blob/master/src/server/mod.rs
 fn main() {
-    println!("stating polaris");
+    println!("starting polaris");
     let opts = Opts::read_opts();
     let config = config::Config::load_config(opts.config_file.as_slice());
-    let sender = hyparview::start_service(config.local_addr, config.contact_nodes);
+    let hpv_sender = hyparview::start_service(config.local_addr, config.contact_nodes);
 
     let listener = TcpListener::bind(config.local_addr);
     let mut acceptor = listener.listen();
     for conn in acceptor.incoming() {
         println!("aceepting an incoming!");
-        let sender = sender.clone();
+        let hpv_sender = hpv_sender.clone();
         match conn {
             Err(e) => println!("failure with acceptor: {}", e),
             // TODO: this builds a new thread per client, maybe just want some TaskPool/handler instead - or mio (https://github.com/carllerche/mio)
             Ok(conn) => Thread::spawn(move || {
                 let conn = conn.clone();
-                handle_client(conn, sender);
+                handle_client(conn, hpv_sender);
             }).detach(),
         }
     }
 }
 
-fn handle_client(mut stream: TcpStream, sender: Sender<int>) {
+fn handle_client(mut stream: TcpStream, sender: Sender<hyparview::messages::HyParViewMessage>) {
     println!("hello client");
-    // TODO: deserialize message 
-
-    sender.send(42);
+    match hyparview::messages::deserialize(&mut stream) {
+        Ok(msg) => sender.send(msg),
+        Err(e) => println!("failed to parse incoming message: {}", e),
+    }
 }
 
 /// struct to hold the parsed command line args to the program.
@@ -48,7 +49,7 @@ impl Opts {
         let program = args[0].clone();
 
         let opts = &[
-            optopt("c", "config_file", "(required) path to the central configuration file", ""),
+            optopt("c", "config", "(required) path to the central configuration file", ""),
             optflag("h", "help", "print this help menu")
         ];
         let matches = match getopts(args.tail(), opts) {
@@ -63,7 +64,7 @@ impl Opts {
         
         let config_file = match matches.opt_str("c") {
             Some(x) => x,
-            None => panic!("must pass in a location of conifuratioon file"),
+            None => panic!("must pass in a location of configuration file (-c FILE)"),
         };
 
         Opts { config_file : config_file }
@@ -74,42 +75,3 @@ impl Opts {
         print!("{}", usage(brief.as_slice(), opts));
     }
 }
-
-// struct Config {
-//     pub local_addr: SocketAddr,
-//     pub contact_nodes: Vec<SocketAddr>,
-//     pub active_random_walk_length: u8,
-//     pub passive_random_walk_length: u8,
-//     pub active_view_size: u8,
-//     pub passive_view_size: u8,
-//     pub shuffle_period_seconds: u8,
-//     pub shuffle_active_view_count: u8,
-//     pub shuffle_passive_view_count: u8,
-// }
-// impl Config {
-//     /// i really don't want to create a toml/yaml/whatever lib or pull in one (for now), so just use a 
-//     /// fixed format text file. current format is (each line, that is):
-//     /// - local_addr: ipAddrV4:port
-//     /// - contact_nodes: comma delimited list of {ipAddrV4:port} tuples
-//     /// - ARWL,PRWL: comma delimted {active|passive} random walk length
-//     /// - AV,PV sizes: {active|passive} view sizes
-//     /// - shuffle period : number of seconds between each shuffle round
-//     /// - shuffle AV,PV node counts: the number of {active|passive} node ids to send in a SHUFFLE message
-//     fn load_config(file_name: &str) -> Config {
-//         let path = Path::new(file_name);
-//         let mut reader = BufferedReader::new(File::open(&path));
-
-//         let line = reader.read_line().ok().expect("Failed to read line");
-//         let local_addr: SocketAddr = from_str(line.as_slice().trim()).expect("malformed address");
-
-//         let mut contact_nodes = Vec::new();
-//         let line = reader.read_line().ok().expect("Failed to read line");
-//         let v: Vec<&str> = line.split_str(",").collect();
-//         for addr in v.iter() {
-//             contact_nodes.push(from_str(addr.as_slice().trim()).expect("malformed address"));
-//         }
-
-//         Config { local_addr: local_addr, contact_nodes: contact_nodes }
-//     }
-// }
-

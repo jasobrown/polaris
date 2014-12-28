@@ -6,4 +6,3 @@ authors = ["Jason Brown <jasedbrown@gmail.com>"]
 [lib]
 name = "hyparview"
 path = "lib.rs"
-

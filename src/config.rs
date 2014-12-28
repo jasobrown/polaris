@@ -39,7 +39,7 @@ impl Config {
         let (arwl, prwl) = Config::read_int_pair(&mut reader);
         let (active_size, passive_size) = Config::read_int_pair(&mut reader);
         let line = reader.read_line().ok().expect("Failed to read line");
-        let shuffle_period: u8 = from_str(line.as_slice()).expect("expected an int");
+        let shuffle_period: u8 = from_str(line.as_slice().trim()).expect("expected an int");
         let (shuffle_active_cnt, shuffle_passive_count) = Config::read_int_pair(&mut reader);
 
         Config { local_addr: local_addr, contact_nodes: contact_nodes, active_random_walk_length: arwl, passive_random_walk_length: prwl,
@@ -49,7 +49,7 @@ impl Config {
 
     fn read_int_pair(reader: &mut BufferedReader<Result<File, IoError>>) -> (u8, u8) {
         let line = reader.read_line().ok().expect("Failed to read line");
-        let v: Vec<&str> = line.split_str(",").collect();
+        let v: Vec<&str> = line.trim().split_str(",").collect();
         let val0: u8 = from_str(v[0]).expect("expected an int");
         let val1: u8 = from_str(v[1]).expect("expected an int");
         (val0, val1)
