@@ -1,5 +1,6 @@
 use std::io::{IoError,IoErrorKind,IoResult};
 use std::io::net::ip::{Ipv4Addr,SocketAddr};
+use std::io::net::tcp::{TcpStream};
 
 // TODO: need a much better system for identifying the messages (by type) than this simple hard-coded list, but wtf...
 static HPV_MSG_ID_JOIN: u8 = 0;
@@ -14,19 +15,20 @@ static HPV_MSG_ID_DISCONNECT: u8 = 3;
 
 #[deriving(Copy,Show)]
 pub enum HyParViewMessage {
-    JoinMessage(Join),
-    ForwardJoinMessage(ForwardJoin),
-    JoinAckMessage(JoinAck),
-    DisconnectMessage(Disconnect),
+    JoinMessage(Join,SocketAddr),
+    ForwardJoinMessage(ForwardJoin,SocketAddr),
+    JoinAckMessage(JoinAck,SocketAddr),
+    DisconnectMessage(Disconnect,SocketAddr),
 }
 
 /// top-level function for serializing a HyParView message.
-pub fn deserialize(reader: &mut Reader) -> IoResult<HyParViewMessage> {
+pub fn deserialize(reader: &mut TcpStream) -> IoResult<HyParViewMessage> {
+    let addr = reader.peer_name().ok().expect("failed to get the remote peer addr from an open socket.");
     match reader.read_u8() {
-        Ok(0) => Ok(HyParViewMessage::JoinMessage(Join::deserialize(reader).ok().expect("failed to deserailize the join"))),
-        Ok(1) => Ok(HyParViewMessage::ForwardJoinMessage(ForwardJoin::deserialize(reader).ok().expect("failed to deserailize the forward join"))),
-        Ok(2) => Ok(HyParViewMessage::JoinAckMessage(JoinAck::deserialize(reader).ok().expect("failed to deserailize the join ack"))),
-        Ok(3) => Ok(HyParViewMessage::DisconnectMessage(Disconnect::deserialize(reader).ok().expect("failed to deserailize the disconnect"))),
+        Ok(0) => Ok(HyParViewMessage::JoinMessage(Join::new(), addr)),
+        Ok(1) => Ok(HyParViewMessage::ForwardJoinMessage(ForwardJoin::deserialize(reader).ok().expect("failed to deserailize the forward join"), addr)),
+        Ok(2) => Ok(HyParViewMessage::JoinAckMessage(JoinAck::new(), addr)),
+        Ok(3) => Ok(HyParViewMessage::DisconnectMessage(Disconnect::new(), addr)),
         Err(e) => Err(e),
         _ => Err(IoError{ kind: IoErrorKind::InvalidInput, desc: "unknown message id passed in".as_slice(), detail: None }),
     }
@@ -63,46 +65,17 @@ fn deserialize_socket_addr(reader: &mut Reader) -> IoResult<SocketAddr> {
 }
 
 #[deriving(Copy,Show)]
-pub struct Join {
-    pub sender:  SocketAddr,
-    //TODO: add a message uuid so we can register a callback (to make sure the join message gets a reponse, else resend the request)
-}
+//TODO: add a message uuid so we can register a callback (to make sure the join message gets a reponse, else resend the request)
+pub struct Join;
 impl Join {
-    pub fn new(sender: &SocketAddr) -> Join {
-        Join { sender: *sender }
-    }
-
-    pub fn deserialize(reader: &mut Reader) -> IoResult<Join> {
-        match deserialize_socket_addr(reader) {
-            Ok(socket) => Ok(Join::new(&socket)),
-            Err(e) => Err(e),
-        }
+    pub fn new() -> Join {
+        Join
     }
 
     pub fn serialize(&self, writer: &mut Writer) -> IoResult<int> {
         writer.write_u8(HPV_MSG_ID_JOIN).ok();
-        match serialize_socket_addr(&self.sender, writer) {
-            Ok(cnt) => Ok(1 + cnt),
-            Err(e) => Err(e),
-        }
+        Ok(1)
     }
-}
-
-#[test]
-fn test_join_serialization() {
-    use std::io::{MemReader,BufferedWriter};
-    use std::io::net::ip::{SocketAddr};
-
-    let sock_addr: SocketAddr = from_str("127.0.0.1:9090").expect("invalid socket addr");
-    let join_msg = Join::new(&sock_addr);
-    let vec = Vec::new();
-    let mut writer = BufferedWriter::new(vec);
-    let result = join_msg.serialize(&mut writer);
-    
-    let vec = writer.into_inner();
-    let mut reader = MemReader::new(vec);
-    let return_join_msg = Join::deserialize(&mut reader).ok().expect("failed to parse socket addr");
-    assert!(return_join_msg.sender.eq(&sock_addr));
 }
 
 #[deriving(Copy,Show)]
@@ -143,53 +116,51 @@ impl ForwardJoin {
     }
 }
 
-#[deriving(Copy,Show)]
-pub struct Disconnect {
-    pub sender: SocketAddr,
+#[test]
+fn test_join_serialization() {
+    use std::io::{MemReader,BufferedWriter};
+    use std::io::net::ip::{SocketAddr};
+
+    let arwl = 6u8;
+    let prwl = 3u8;
+
+    let sock_addr: SocketAddr = from_str("127.0.0.1:9090").expect("invalid socket addr");
+    let fjoin_msg = ForwardJoin::new(&sock_addr, arwl, prwl);
+    let vec = Vec::new();
+    let mut writer = BufferedWriter::new(vec);
+    let result = fjoin_msg.serialize(&mut writer);
+    
+    let vec = writer.into_inner();
+    let mut reader = MemReader::new(vec);
+    let return_fjoin_msg = ForwardJoin::deserialize(&mut reader).ok().expect("failed to parse socket addr");
+    assert!(return_fjoin_msg.sender.eq(&sock_addr));
+    assert!(return_fjoin_msg.arwl, arwl);
+    assert!(return_fjoin_msg.prwl, prwl);
 }
+
+#[deriving(Copy,Show)]
+pub struct Disconnect;
 impl Disconnect {
-    pub fn new(sender: &SocketAddr) -> Disconnect {
-        Disconnect { sender: *sender }
+    pub fn new() -> Disconnect {
+        Disconnect
     }
 
-    pub fn deserialize(reader: &mut Reader) -> IoResult<Disconnect> {
-        match deserialize_socket_addr(reader) {
-            Ok(socket) => Ok(Disconnect::new(&socket)),
-            Err(e) => Err(e),
-        }
-    }
-
-    pub fn serialize(&self, writer: &mut Writer) -> IoResult<int> {
+     pub fn serialize(&self, writer: &mut Writer) -> IoResult<int> {
         writer.write_u8(HPV_MSG_ID_DISCONNECT).ok();
-        match serialize_socket_addr(&self.sender, writer) {
-            Ok(cnt) => Ok(1 + cnt),
-            Err(e) => Err(e),
-        }
+        Ok(1)
     }
 }
 
 #[deriving(Copy,Show)]
-pub struct JoinAck {
-    pub sender: SocketAddr,
-}
+pub struct JoinAck;
 impl JoinAck {
-    pub fn new(sender: &SocketAddr) -> JoinAck {
-        JoinAck { sender: *sender }
-    }
-
-    pub fn deserialize(reader: &mut Reader) -> IoResult<JoinAck> {
-        match deserialize_socket_addr(reader) {
-            Ok(socket) => Ok(JoinAck::new(&socket)),
-            Err(e) => Err(e),
-        }
+    pub fn new() -> JoinAck {
+        JoinAck
     }
 
     pub fn serialize(&self, writer: &mut Writer) -> IoResult<int> {
         writer.write_u8(HPV_MSG_ID_JOIN_ACK).ok();
-        match serialize_socket_addr(&self.sender, writer) {
-            Ok(cnt) => Ok(1 + cnt),
-            Err(e) => Err(e),
-        }
+        Ok(1)
     }
 }
 

@@ -4,6 +4,7 @@ extern crate hyparview;
 
 use config::Config;
 use getopts::{optopt,optflag,getopts,OptGroup,usage};
+use hyparview::messages::{deserialize,HyParViewMessage};
 use std::io::{TcpListener,TcpStream,Acceptor,Listener};
 use std::os;
 use std::sync::Arc;
@@ -20,7 +21,7 @@ fn main() {
     let listener = TcpListener::bind(config_cpy.local_addr);
     let mut acceptor = listener.listen();
     for conn in acceptor.incoming() {
-        println!("aceepting an incoming!");
+        println!("aceepting an incoming connection!");
         let hpv_sender = hpv_sender.clone();
         match conn {
             Err(e) => println!("failure with acceptor: {}", e),
@@ -33,7 +34,7 @@ fn main() {
     }
 }
 
-fn handle_client(mut stream: TcpStream, sender: Sender<hyparview::messages::HyParViewMessage>) {
+fn handle_client(mut stream: TcpStream, sender: Sender<HyParViewMessage>) {
     println!("hello client");
     match hyparview::messages::deserialize(&mut stream) {
         Ok(msg) => sender.send(msg),
