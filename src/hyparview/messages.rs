@@ -80,13 +80,14 @@ impl Join {
 
 #[deriving(Copy,Show)]
 pub struct ForwardJoin {
-    originator: SocketAddr,
-    arwl: u8,
-    prwl: u8
+    pub originator: SocketAddr,
+    pub arwl: u8,
+    pub prwl: u8,
+    pub ttl: u8
 }
 impl ForwardJoin {
-    pub fn new(addr: &SocketAddr, arwl: u8, prwl: u8) -> ForwardJoin {
-        ForwardJoin { originator: *addr, arwl: arwl, prwl: prwl }
+    pub fn new(addr: &SocketAddr, arwl: u8, prwl: u8, ttl: u8) -> ForwardJoin {
+        ForwardJoin { originator: *addr, arwl: arwl, prwl: prwl, ttl: ttl }
     }
 
     pub fn deserialize(reader: &mut Reader) -> IoResult<ForwardJoin> {
@@ -94,7 +95,8 @@ impl ForwardJoin {
             Ok(socket) => {
                 let arwl = reader.read_u8().ok().expect("could not read arwl from stream"); 
                 let prwl = reader.read_u8().ok().expect("could not read prwl from stream"); 
-                Ok(ForwardJoin::new(&socket, arwl, prwl))
+                let ttl = reader.read_u8().ok().expect("could not read ttl from stream"); 
+                Ok(ForwardJoin::new(&socket, arwl, prwl, ttl))
             },
             Err(e) => Err(e),
         }
@@ -110,7 +112,10 @@ impl ForwardJoin {
         }
 
         writer.write_u8(self.arwl).ok();
+        cnt += 1;
         writer.write_u8(self.prwl).ok();
+        cnt += 1;
+        writer.write_u8(self.ttl).ok();
         cnt += 1;
         Ok(cnt)
     }
@@ -123,19 +128,22 @@ fn test_join_serialization() {
 
     let arwl = 6u8;
     let prwl = 3u8;
+    let ttl = 4u8;
 
     let sock_addr: SocketAddr = from_str("127.0.0.1:9090").expect("invalid socket addr");
-    let fjoin_msg = ForwardJoin::new(&sock_addr, arwl, prwl);
+    let fjoin_msg = ForwardJoin::new(&sock_addr, arwl, prwl, ttl);
     let vec = Vec::new();
     let mut writer = BufferedWriter::new(vec);
     let result = fjoin_msg.serialize(&mut writer);
     
     let vec = writer.into_inner();
     let mut reader = MemReader::new(vec);
+    let header = reader.read_u8().ok().expect("failed to read the header");
     let return_fjoin_msg = ForwardJoin::deserialize(&mut reader).ok().expect("failed to parse socket addr");
-    assert!(return_fjoin_msg.sender.eq(&sock_addr));
-    assert!(return_fjoin_msg.arwl, arwl);
-    assert!(return_fjoin_msg.prwl, prwl);
+    assert!(return_fjoin_msg.originator.eq(&sock_addr));
+    assert_eq!(return_fjoin_msg.arwl, arwl);
+    assert_eq!(return_fjoin_msg.prwl, prwl);
+    assert_eq!(return_fjoin_msg.ttl, ttl);
 }
 
 #[deriving(Copy,Show)]

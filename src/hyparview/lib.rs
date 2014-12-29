@@ -88,7 +88,7 @@ impl HyParViewContext {
         self.add_to_active_view(sender);
         self.send_join_ack(sender);
         
-        let forward_join = ForwardJoin::new(sender, self.config.active_random_walk_length, self.config.passive_random_walk_length);
+        let forward_join = ForwardJoin::new(sender, self.config.active_random_walk_length, self.config.passive_random_walk_length, self.config.active_random_walk_length);
         for peer in self.active_view.read().iter() {
             let mut socket = TcpStream::connect(*peer).ok().expect("failed to open connection to peer");
             forward_join.serialize(&mut socket);
@@ -122,6 +122,17 @@ impl HyParViewContext {
         }
     }
 
+    fn add_to_passive_view(&self, peer: &SocketAddr) {
+        let contains = HyParViewContext::index_of(&*self.passive_view.read(), peer);
+        if contains.is_none() {
+            while self.passive_view.read().len() >= self.config.passive_view_size - 1 {
+                // could try something fancy like removing a random entry, but screw it, let's go simple!
+                self.passive_view.write().remove(0);
+            }
+        }
+        self.passive_view.write().push(*peer);
+    }
+
     fn send_join_ack(&self, peer: &SocketAddr) {
         // send an 'ack' message back to the sender - currently in leiu of maintaining an open, mutable tcp connection (but I like this anyways :) )
         let mut conn = TcpStream::connect(*peer).ok().expect("could not connect to node that wants to JOIN");
@@ -143,7 +154,29 @@ impl HyParViewContext {
     }
 
     fn handle_forward_join(&self, msg: &ForwardJoin, sender: &SocketAddr) {
-        //TODO: impl me!!!
+        if self.active_view.read().len() <= 1 || msg.ttl == 0 {
+            self.add_to_active_view(&msg.originator);
+            self.send_join_ack(&msg.originator);
+            return;
+        } 
+
+        if msg.ttl == msg.prwl {
+            self.add_to_passive_view(&msg.originator);
+            return;
+        }
+
+        let ttl = msg.ttl - 1;
+        let forward_join = ForwardJoin::new(&msg.originator, msg.arwl, msg.prwl, ttl);
+        loop {
+            let rand: uint = rand::random();
+            let idx = rand % self.active_view.read().len();
+            let peer = self.active_view.read()[idx];
+            if !peer.eq(sender) {
+                let mut socket = TcpStream::connect(peer).ok().expect("failed to open connection to peer (to forward join)");
+                forward_join.serialize(&mut socket);
+                break;
+            }
+        }
     }
 
     fn handle_join_ack(&self, sender: &SocketAddr) {
