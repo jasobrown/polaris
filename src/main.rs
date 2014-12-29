@@ -1,21 +1,23 @@
+extern crate config;
 extern crate getopts;
 extern crate hyparview;
 
+use config::Config;
 use getopts::{optopt,optflag,getopts,OptGroup,usage};
 use std::io::{TcpListener,TcpStream,Acceptor,Listener};
 use std::os;
+use std::sync::Arc;
 use std::thread::Thread;
 
-mod config;
-
-// heavily influenced by hyper HTTP lib: https://github.com/hyperium/hyper/blob/master/src/server/mod.rs
 fn main() {
     println!("starting polaris");
     let opts = Opts::read_opts();
-    let config = config::Config::load_config(opts.config_file.as_slice());
-    let hpv_sender = hyparview::start_service(config.local_addr, config.contact_nodes);
+    let config = box Config::load_config(opts.config_file.as_slice());
+    let config_arc = Arc::new(*config);
+    let hpv_sender = hyparview::start_service(config_arc.clone());
 
-    let listener = TcpListener::bind(config.local_addr);
+    let config_cpy = config_arc.clone();
+    let listener = TcpListener::bind(config_cpy.local_addr);
     let mut acceptor = listener.listen();
     for conn in acceptor.incoming() {
         println!("aceepting an incoming!");

@@ -7,5 +7,8 @@ authors = ["Jason Brown <jasedbrown@gmail.com>"]
 [[bin]]
 name = "polaris"
 
+[dependencies.config]
+path = "src/config"
+
 [dependencies.hyparview]
 path = "src/hyparview"
