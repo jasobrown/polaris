@@ -7,11 +7,20 @@ static HPV_MSG_ID_JOIN: u8 = 0;
 static HPV_MSG_ID_FORWARD_JOIN: u8 = 1;
 static HPV_MSG_ID_JOIN_ACK: u8 = 2;
 static HPV_MSG_ID_DISCONNECT: u8 = 3;
+static HPV_MSG_ID_NEIGHBOR_REQUEST: u8 = 4;
+static HPV_MSG_ID_NEIGHBOR_RESPONSE: u8 = 5;
 
-// enum Priority {
-//     High,
-//     Low
-// }
+#[deriving(Copy,Show)]
+pub enum Priority {
+    High,
+    Low
+}
+
+#[deriving(Copy,Show)]
+pub enum Result {
+    Accept,
+    Reject
+}
 
 #[deriving(Copy,Show)]
 pub enum HyParViewMessage {
@@ -19,6 +28,8 @@ pub enum HyParViewMessage {
     ForwardJoinMessage(ForwardJoin,SocketAddr),
     JoinAckMessage(JoinAck,SocketAddr),
     DisconnectMessage(Disconnect,SocketAddr),
+    NeighborRequestMessage(NeighborRequest,SocketAddr),
+    NeighborResponseMessage(NeighborResponse,SocketAddr),
 }
 
 /// top-level function for serializing a HyParView message.
@@ -29,6 +40,8 @@ pub fn deserialize(reader: &mut TcpStream) -> IoResult<HyParViewMessage> {
         Ok(1) => Ok(HyParViewMessage::ForwardJoinMessage(ForwardJoin::deserialize(reader).ok().expect("failed to deserailize the forward join"), addr)),
         Ok(2) => Ok(HyParViewMessage::JoinAckMessage(JoinAck::new(), addr)),
         Ok(3) => Ok(HyParViewMessage::DisconnectMessage(Disconnect::new(), addr)),
+        Ok(4) => Ok(HyParViewMessage::NeighborRequestMessage(NeighborRequest::deserialize(reader).ok().expect("failed to deserailize the neighbor request"), addr)),
+        Ok(5) => Ok(HyParViewMessage::NeighborResponseMessage(NeighborResponse::deserialize(reader).ok().expect("failed to deserailize the neighbor response"), addr)),
         Err(e) => Err(e),
         _ => Err(IoError{ kind: IoErrorKind::InvalidInput, desc: "unknown message id passed in".as_slice(), detail: None }),
     }
@@ -172,11 +185,62 @@ impl JoinAck {
     }
 }
 
-// pub struct Neighbor {
-//     sender: SocketAddr,
-//     priority: Priority
-// }
+#[deriving(Copy,Show)]
+pub struct NeighborRequest {
+    pub priority: Priority,
+}
+impl NeighborRequest {
+    pub fn new(priority: Priority) -> NeighborRequest {
+        NeighborRequest { priority: priority}
+    }
 
-// pub struct NeighborReject {
-//     sender: SocketAddr,
-// }
+    pub fn deserialize(reader: &mut Reader) -> IoResult<NeighborRequest> {
+        let p = match reader.read_u8().ok().expect("could not read priority from stream") {
+            0 => Priority::Low,
+            1 => Priority::High,
+            //println!("received unknown priority level, defaulting to low priority");
+            _ =>  Priority::Low,
+        };
+        Ok(NeighborRequest::new(p))
+    }
+
+    pub fn serialize(&self, writer: &mut Writer) -> IoResult<int> {
+        writer.write_u8(HPV_MSG_ID_NEIGHBOR_REQUEST).ok();
+        let p: u8 = match self.priority {
+            Priority::Low => 0,
+            Priority::High => 1,
+        };
+        writer.write_u8(p).ok();
+        Ok(2)
+    }
+}
+
+#[deriving(Copy,Show)]
+pub struct NeighborResponse {
+    pub result: Result,
+}
+impl NeighborResponse {
+    pub fn new(result: Result) -> NeighborResponse {
+        NeighborResponse { result: result }
+    }
+
+    pub fn deserialize(reader: &mut Reader) -> IoResult<NeighborResponse> {
+        let r = match reader.read_u8().ok().expect("could not read result from stream") {
+            0 => Result::Accept,
+            1 => Result::Reject,
+            // if we can't undertand the result code, just default to reject
+            _ => Result::Reject 
+        };
+        Ok(NeighborResponse::new(r))
+    }
+
+    pub fn serialize(&self, writer: &mut Writer) -> IoResult<int> {
+        writer.write_u8(HPV_MSG_ID_NEIGHBOR_RESPONSE).ok();
+        let p: u8 = match self.result {
+            Result::Accept => 0,
+            Result::Reject => 1,
+        };
+        writer.write_u8(p).ok();
+        Ok(2)
+    }
+}
