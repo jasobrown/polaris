@@ -12,6 +12,7 @@ pub struct Config {
     pub shuffle_period_seconds: u8,
     pub shuffle_active_view_count: u8,
     pub shuffle_passive_view_count: u8,
+    pub shuffle_walk_length: u8,
 }
 impl Config {
     /// i really don't want to create a toml/yaml/whatever lib or pull in one (for now), so just use a 
@@ -22,6 +23,7 @@ impl Config {
     /// - AV,PV sizes: {active|passive} view sizes
     /// - shuffle period : number of seconds between each shuffle round
     /// - shuffle AV,PV node counts: the number of {active|passive} node ids to send in a SHUFFLE message
+    /// - shuffle walk length
     pub fn load_config(file_name: &str) -> Config {
         let path = Path::new(file_name);
         let mut reader = BufferedReader::new(File::open(&path));
@@ -41,10 +43,11 @@ impl Config {
         let line = reader.read_line().ok().expect("Failed to read line");
         let shuffle_period: u8 = line.as_slice().trim().parse().expect("expected an int");
         let (shuffle_active_cnt, shuffle_passive_count) = Config::read_int_pair(&mut reader);
+        let shuffle_walk_length: u8 = line.as_slice().trim().parse().expect("expected an int");
 
         Config { local_addr: local_addr, contact_nodes: contact_nodes, active_random_walk_length: arwl, passive_random_walk_length: prwl,
                  active_view_size: active_size.to_uint().unwrap(), passive_view_size: passive_size.to_uint().unwrap(), shuffle_period_seconds: shuffle_period, 
-                 shuffle_active_view_count: shuffle_active_cnt, shuffle_passive_view_count: shuffle_passive_count}
+                 shuffle_active_view_count: shuffle_active_cnt, shuffle_passive_view_count: shuffle_passive_count, shuffle_walk_length: shuffle_walk_length}
     }
 
     fn read_int_pair(reader: &mut BufferedReader<Result<File, IoError>>) -> (u8, u8) {

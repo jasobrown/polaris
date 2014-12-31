@@ -35,11 +35,12 @@ fn main() {
 }
 
 fn handle_client(mut stream: TcpStream, sender: Sender<HyParViewMessage>) {
-    println!("hello client");
-    match hyparview::messages::deserialize(&mut stream) {
+    let addr = stream.peer_name().ok().expect("failed to get the remote peer addr from an open socket.");
+    match hyparview::messages::deserialize(&mut stream, addr) {
         Ok(msg) => sender.send(msg),
         Err(e) => println!("failed to parse incoming message: {}", e),
     }
+    // TODO send a 'socket closed' event to the hyparview controller
 }
 
 /// struct to hold the parsed command line args to the program.

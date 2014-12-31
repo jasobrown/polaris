@@ -9,8 +9,10 @@ static HPV_MSG_ID_JOIN_ACK: u8 = 2;
 static HPV_MSG_ID_DISCONNECT: u8 = 3;
 static HPV_MSG_ID_NEIGHBOR_REQUEST: u8 = 4;
 static HPV_MSG_ID_NEIGHBOR_RESPONSE: u8 = 5;
+static HPV_MSG_ID_SHUFFLE: u8 = 6;
+static HPV_MSG_ID_SHUFFLE_REPLY: u8 = 7;
 
-#[deriving(Copy,Show)]
+#[deriving(Copy,Show,PartialEq)]
 pub enum Priority {
     High,
     Low
@@ -22,19 +24,21 @@ pub enum Result {
     Reject
 }
 
-#[deriving(Copy,Show)]
-pub enum HyParViewMessage {
+#[deriving(Show)]
+pub enum HyParViewMessage<'a> {
     JoinMessage(Join,SocketAddr),
     ForwardJoinMessage(ForwardJoin,SocketAddr),
     JoinAckMessage(JoinAck,SocketAddr),
     DisconnectMessage(Disconnect,SocketAddr),
     NeighborRequestMessage(NeighborRequest,SocketAddr),
     NeighborResponseMessage(NeighborResponse,SocketAddr),
+    ShuffleMessage(Shuffle<'a>,SocketAddr),
+    ShuffleReplyMessage(ShuffleReply<'a>,SocketAddr),
 }
 
 /// top-level function for serializing a HyParView message.
-pub fn deserialize(reader: &mut TcpStream) -> IoResult<HyParViewMessage> {
-    let addr = reader.peer_name().ok().expect("failed to get the remote peer addr from an open socket.");
+// TODO: adjust SocketAddr ro be a reference, rather than a copy (need to understand lifetimes for the HyParViewMessage struct)
+pub fn deserialize(reader: &mut TcpStream, addr: SocketAddr) -> IoResult<HyParViewMessage> {
     match reader.read_u8() {
         Ok(0) => Ok(HyParViewMessage::JoinMessage(Join::new(), addr)),
         Ok(1) => Ok(HyParViewMessage::ForwardJoinMessage(ForwardJoin::deserialize(reader).ok().expect("failed to deserailize the forward join"), addr)),
@@ -42,6 +46,8 @@ pub fn deserialize(reader: &mut TcpStream) -> IoResult<HyParViewMessage> {
         Ok(3) => Ok(HyParViewMessage::DisconnectMessage(Disconnect::new(), addr)),
         Ok(4) => Ok(HyParViewMessage::NeighborRequestMessage(NeighborRequest::deserialize(reader).ok().expect("failed to deserailize the neighbor request"), addr)),
         Ok(5) => Ok(HyParViewMessage::NeighborResponseMessage(NeighborResponse::deserialize(reader).ok().expect("failed to deserailize the neighbor response"), addr)),
+        Ok(6) => Ok(HyParViewMessage::ShuffleMessage(Shuffle::deserialize(reader).ok().expect("failed to deserailize the shuffle"), addr)),
+        Ok(7) => Ok(HyParViewMessage::ShuffleReplyMessage(ShuffleReply::deserialize(reader).ok().expect("failed to deserailize the shuffle reply"), addr)),
         Err(e) => Err(e),
         _ => Err(IoError{ kind: IoErrorKind::InvalidInput, desc: "unknown message id passed in".as_slice(), detail: None }),
     }
@@ -242,5 +248,104 @@ impl NeighborResponse {
         };
         writer.write_u8(p).ok();
         Ok(2)
+    }
+}
+
+#[deriving(Show)]
+pub struct Shuffle<'a> {
+    pub originator: SocketAddr,
+    pub nodes: &'a Vec<SocketAddr>,
+    pub ttl: u8,
+}
+impl Shuffle<'a> {
+    pub fn new(originator: SocketAddr, nodes: &Vec<SocketAddr>, ttl: u8) -> Shuffle {
+        Shuffle { originator: originator, nodes: nodes, ttl: ttl }
+    }
+
+    pub fn deserialize(reader: &mut Reader) -> IoResult<Shuffle> {
+        let originator = deserialize_socket_addr(reader).ok().expect("could not read socket addr from stream");
+        let nodes = deserialize_socket_addrs(reader);
+        let ttl = reader.read_u8().ok().expect("could not read ttl from stream"); 
+        Ok(Shuffle::new(originator, nodes, ttl))
+    }
+
+    pub fn serialize(&self, writer: &mut Writer) -> IoResult<int> {
+        writer.write_u8(HPV_MSG_ID_SHUFFLE).ok();
+        let mut cnt = 1;
+
+        match serialize_socket_addr(&self.originator, writer) {
+            Ok(c) => cnt += c,
+            Err(e) => return Err(e),
+        }
+
+        match serialize_socket_addrs(&self.nodes, writer) {
+            Ok(c) => cnt += c,
+            Err(e) => return Err(e),
+        }
+
+        writer.write_u8(self.ttl).ok();
+        cnt += 1;
+        Ok(cnt)
+    }
+}
+
+fn deserialize_socket_addrs(reader: &mut Reader) -> Vec<SocketAddr> {
+    let len = reader.read_u8().ok().expect("could not read vector size from stream").to_uint().unwrap();
+    let mut nodes = Vec::with_capacity(len);
+
+    for i in range (0u, len) {
+        match deserialize_socket_addr(reader) {
+            Ok(socket) => nodes.push(socket),
+            Err(e) => println!("failed"),
+        }
+    }
+    nodes
+}
+
+fn serialize_socket_addrs(nodes: &Vec<SocketAddr>, writer: &mut Writer) -> IoResult<int> {
+    let mut cnt = 0;
+    writer.write_u8(nodes.len().to_u8().unwrap()).ok();
+    cnt += 1;
+    
+    for node in nodes.iter() {
+        match serialize_socket_addr(node, writer) {
+            Ok(c) => cnt += c,
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(cnt)
+}
+
+#[deriving(Show)]
+pub struct ShuffleReply<'a> {
+    /// return the vector of nodes the originator first sent out; that way the originator does not need to keep track of that.
+    pub sent_nodes: &'a Vec<SocketAddr>,
+    pub nodes: &'a Vec<SocketAddr>,
+}
+impl ShuffleReply<'a> {
+    pub fn new(sent_nodes: &Vec<SocketAddr>, nodes: &Vec<SocketAddr>) -> ShuffleReply {
+        ShuffleReply { sent_nodes: sent_nodes, nodes: nodes }
+    }
+
+    pub fn deserialize(reader: &mut Reader) -> IoResult<ShuffleReply> {
+        let sent_nodes = deserialize_socket_addrs(reader);
+        let nodes = deserialize_socket_addrs(reader);
+        Ok(ShuffleReply::new(sent_nodes, nodes))
+    }
+
+    pub fn serialize(&self, writer: &mut Writer) -> IoResult<int> {
+        writer.write_u8(HPV_MSG_ID_SHUFFLE_REPLY).ok();
+        let mut cnt = 1;
+
+        match serialize_socket_addrs(&self.sent_nodes, writer) {
+            Ok(c) => cnt += c,
+            Err(e) => return Err(e),
+        }
+
+        match serialize_socket_addrs(&self.nodes, writer) {
+            Ok(c) => cnt += c,
+            Err(e) => return Err(e),
+        }
+        Ok(cnt)
     }
 }
