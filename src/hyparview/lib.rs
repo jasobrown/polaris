@@ -114,13 +114,13 @@ impl HyParViewContext {
         loop {
             // TODO: try_recv() does *not* block, and might be nice for a gentle shutdown of the listener
             match rx.recv() {
-                HyParViewMessage::JoinMessage(msg,addr) => self.handle_join(&addr),
+                HyParViewMessage::JoinMessage(_,addr) => self.handle_join(&addr),
                 HyParViewMessage::ForwardJoinMessage(msg,addr) => self.handle_forward_join(&msg, &addr),
-                HyParViewMessage::JoinAckMessage(msg,addr) => self.handle_join_ack(&addr),
-                HyParViewMessage::DisconnectMessage(msg,addr) => self.handle_disconnect(&addr),
+                HyParViewMessage::JoinAckMessage(_,addr) => self.handle_join_ack(&addr),
+                HyParViewMessage::DisconnectMessage(_,addr) => self.handle_disconnect(&addr),
                 HyParViewMessage::NeighborRequestMessage(msg,addr) => self.handle_neighbor_request(&msg, &addr),
                 HyParViewMessage::NeighborResponseMessage(msg,addr) => self.handle_neighbor_response(&msg, &addr),
-                HyParViewMessage::ShuffleMessage(msg,addr) => self.handle_shuffle(&msg, &addr),
+                HyParViewMessage::ShuffleMessage(msg,addr) => self.handle_shuffle(msg, &addr),
                 HyParViewMessage::ShuffleReplyMessage(msg,addr) => self.handle_shuffle_reply(&msg, &addr),
             }
         }
@@ -199,6 +199,11 @@ impl HyParViewContext {
             }
         }
         None
+    }
+
+    fn contains(nodes: &Vec<SocketAddr>, target: &SocketAddr) -> bool {
+        let idx = HyParViewContext::index_of(nodes, target);
+        idx.is_some()
     }
 
     fn handle_forward_join(&self, msg: &ForwardJoin, sender: &SocketAddr) {
@@ -288,7 +293,7 @@ impl HyParViewContext {
                     neighbor.serialize(&mut* socket);
                     break;
                 },
-                Err(e) => {
+                Err(_) => {
                     self.passive_view.write().remove(i);
                 },
             }
@@ -319,7 +324,7 @@ impl HyParViewContext {
         };
     }
 
-    fn handle_shuffle(&self, msg: &Shuffle, sender: &SocketAddr) {
+    fn handle_shuffle(&self, msg: Shuffle, sender: &SocketAddr) {
         // first, determine if this node should handle the request or pass it on down
         let active_view = self.active_view.read();
         if msg.ttl > 0 && active_view.len() > 1 {
@@ -335,19 +340,55 @@ impl HyParViewContext {
         }
 
         let nodes = self.build_shuffle_list(&*active_view, &msg.originator);
-        let shuffle_reply = ShuffleReply::new(&nodes, &nodes);
+        let empty_vec = Vec::new();
+        self.apply_shuffle(&msg.nodes, &empty_vec);
+
+        let shuffle_reply = ShuffleReply::new(msg.nodes, nodes);
         let mut socket = TcpStream::connect(msg.originator).ok().expect("failed to open connection to peer");
         shuffle_reply.serialize(&mut socket);
+    }
 
-        integrate_shuffle
+    fn apply_shuffle(&self, nodes: &Vec<SocketAddr>, filter: &Vec<SocketAddr>) {
+        let mut filter_idx = 0;
+        let active_view = self.active_view.read();
+        let passive_view = self.passive_view.read();
+        let mut passive_view_write = self.passive_view.write();
+        let passive_cnt = self.config.passive_view_size;
+        let filter_len = filter.len();
+
+        for node in nodes.iter() {
+            // check to see if node is in active_view or passive_view - skip node if it is
+            if HyParViewContext::contains(&*active_view, node) || HyParViewContext::contains(&*passive_view, node) {
+                continue;
+            }
+
+            // if passive_view at limit, remove one of the nodes as ref'd in the filter array (or a random node is filter is exhausted)
+            while passive_view.len() >= passive_cnt {
+                if filter_len > 0 && filter_idx < filter_len {
+                    let cur = filter[filter_idx];
+                    filter_idx += 1;
+                    let idx = HyParViewContext::index_of(&*passive_view, &cur);
+                    if idx.is_some() {
+                        passive_view_write.remove(idx.unwrap());
+                    } else {
+                        continue;
+                    }
+                } else {
+                    let rand: uint = rand::random();
+                    let idx = rand % passive_view.len();
+                    passive_view_write.remove(idx);
+                }
+            }
+            passive_view_write.push(*node);
+        }
     }
 
     fn handle_shuffle_reply(&self, msg: &ShuffleReply, sender: &SocketAddr) {
-        
+        self.apply_shuffle(&msg.nodes, &msg.sent_nodes);
     }
 }
 
-pub fn start_service(config: Arc<Config>) -> Sender<HyParViewMessage> {
+pub fn start_service(config: Arc<Config>, rx: Receiver<HyParViewMessage>) {
     println!("starting up hyparview");
     let hpv = HyParViewContext::new(config);
     let ctx = Arc::new(hpv);
@@ -359,13 +400,10 @@ pub fn start_service(config: Arc<Config>) -> Sender<HyParViewMessage> {
         ctx_clone.next_round();
     }).detach();
 
-    // setup the task that listens to incoming messages
-    let (tx, rx) : (Sender<HyParViewMessage>, Receiver<HyParViewMessage>) = channel();
     let ctx_clone = ctx.clone();
     Thread::spawn(move ||  {
         ctx_clone.listen(rx);
     }).detach();
 
     ctx.join();
-    tx
 }

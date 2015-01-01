@@ -15,20 +15,21 @@ fn main() {
     let opts = Opts::read_opts();
     let config = box Config::load_config(opts.config_file.as_slice());
     let config_arc = Arc::new(*config);
-    let hpv_sender = hyparview::start_service(config_arc.clone());
+    let (tx, rx) = channel::<HyParViewMessage>();
+    hyparview::start_service(config_arc.clone(), rx);
 
     let config_cpy = config_arc.clone();
     let listener = TcpListener::bind(config_cpy.local_addr);
     let mut acceptor = listener.listen();
     for conn in acceptor.incoming() {
         println!("aceepting an incoming connection!");
-        let hpv_sender = hpv_sender.clone();
+        let tx = tx.clone();
         match conn {
             Err(e) => println!("failure with acceptor: {}", e),
             // TODO: this builds a new thread per client, maybe just want some TaskPool/handler instead - or mio (https://github.com/carllerche/mio)
             Ok(conn) => Thread::spawn(move || {
                 let conn = conn.clone();
-                handle_client(conn, hpv_sender);
+                handle_client(conn, tx);
             }).detach(),
         }
     }

@@ -25,15 +25,15 @@ pub enum Result {
 }
 
 #[deriving(Show)]
-pub enum HyParViewMessage<'a> {
+pub enum HyParViewMessage {
     JoinMessage(Join,SocketAddr),
     ForwardJoinMessage(ForwardJoin,SocketAddr),
     JoinAckMessage(JoinAck,SocketAddr),
     DisconnectMessage(Disconnect,SocketAddr),
     NeighborRequestMessage(NeighborRequest,SocketAddr),
     NeighborResponseMessage(NeighborResponse,SocketAddr),
-    ShuffleMessage(Shuffle<'a>,SocketAddr),
-    ShuffleReplyMessage(ShuffleReply<'a>,SocketAddr),
+    ShuffleMessage(Shuffle,SocketAddr),
+    ShuffleReplyMessage(ShuffleReply,SocketAddr),
 }
 
 /// top-level function for serializing a HyParView message.
@@ -252,13 +252,13 @@ impl NeighborResponse {
 }
 
 #[deriving(Show)]
-pub struct Shuffle<'a> {
+pub struct Shuffle {
     pub originator: SocketAddr,
-    pub nodes: &'a Vec<SocketAddr>,
+    pub nodes: Vec<SocketAddr>,
     pub ttl: u8,
 }
-impl Shuffle<'a> {
-    pub fn new(originator: SocketAddr, nodes: &Vec<SocketAddr>, ttl: u8) -> Shuffle {
+impl Shuffle {
+    pub fn new(originator: SocketAddr, nodes: Vec<SocketAddr>, ttl: u8) -> Shuffle {
         Shuffle { originator: originator, nodes: nodes, ttl: ttl }
     }
 
@@ -293,10 +293,10 @@ fn deserialize_socket_addrs(reader: &mut Reader) -> Vec<SocketAddr> {
     let len = reader.read_u8().ok().expect("could not read vector size from stream").to_uint().unwrap();
     let mut nodes = Vec::with_capacity(len);
 
-    for i in range (0u, len) {
+    for _ in range (0u, len) {
         match deserialize_socket_addr(reader) {
             Ok(socket) => nodes.push(socket),
-            Err(e) => println!("failed"),
+            Err(_) => println!("failed"),
         }
     }
     nodes
@@ -317,13 +317,13 @@ fn serialize_socket_addrs(nodes: &Vec<SocketAddr>, writer: &mut Writer) -> IoRes
 }
 
 #[deriving(Show)]
-pub struct ShuffleReply<'a> {
+pub struct ShuffleReply {
     /// return the vector of nodes the originator first sent out; that way the originator does not need to keep track of that.
-    pub sent_nodes: &'a Vec<SocketAddr>,
-    pub nodes: &'a Vec<SocketAddr>,
+    pub sent_nodes: Vec<SocketAddr>,
+    pub nodes: Vec<SocketAddr>,
 }
-impl ShuffleReply<'a> {
-    pub fn new(sent_nodes: &Vec<SocketAddr>, nodes: &Vec<SocketAddr>) -> ShuffleReply {
+impl ShuffleReply {
+    pub fn new(sent_nodes: Vec<SocketAddr>, nodes: Vec<SocketAddr>) -> ShuffleReply {
         ShuffleReply { sent_nodes: sent_nodes, nodes: nodes }
     }
 
