@@ -16,9 +16,12 @@ fn main() {
     let config = box Config::load_config(opts.config_file.as_slice());
     let config_arc = Arc::new(*config);
     let (tx, rx) = channel::<HyParViewMessage>();
+
+    // TODO: init hyparview *after* binding to the socket
     hyparview::start_service(config_arc.clone(), rx);
 
     let config_cpy = config_arc.clone();
+    println!("going to bind to addr: {}", config_cpy.local_addr);
     let listener = TcpListener::bind(config_cpy.local_addr);
     let mut acceptor = listener.listen();
     for conn in acceptor.incoming() {
@@ -37,6 +40,7 @@ fn main() {
 
 fn handle_client(mut stream: TcpStream, sender: Sender<HyParViewMessage>) {
     let addr = stream.peer_name().ok().expect("failed to get the remote peer addr from an open socket.");
+    println!("got a connection from {}", addr);
     match hyparview::messages::deserialize(&mut stream, addr) {
         Ok(msg) => sender.send(msg),
         Err(e) => println!("failed to parse incoming message: {}", e),
