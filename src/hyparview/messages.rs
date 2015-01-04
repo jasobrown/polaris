@@ -12,19 +12,19 @@ static HPV_MSG_ID_NEIGHBOR_RESPONSE: u8 = 5;
 static HPV_MSG_ID_SHUFFLE: u8 = 6;
 static HPV_MSG_ID_SHUFFLE_REPLY: u8 = 7;
 
-#[deriving(Copy,Show,PartialEq)]
+#[derive(Copy,Show,PartialEq)]
 pub enum Priority {
     High,
     Low
 }
 
-#[deriving(Copy,Show)]
+#[derive(Copy,Show)]
 pub enum Result {
     Accept,
     Reject
 }
 
-#[deriving(Show)]
+#[derive(Show)]
 pub enum HyParViewMessage {
     JoinMessage(Join,SocketAddr),
     ForwardJoinMessage(ForwardJoin,SocketAddr),
@@ -37,19 +37,57 @@ pub enum HyParViewMessage {
 }
 
 /// top-level function for serializing a HyParView message.
-// TODO: adjust SocketAddr ro be a reference, rather than a copy (need to understand lifetimes for the HyParViewMessage struct)
-pub fn deserialize(reader: &mut TcpStream, addr: SocketAddr) -> IoResult<HyParViewMessage> {
-    match reader.read_u8() {
-        Ok(0) => Ok(HyParViewMessage::JoinMessage(Join::new(), addr)),
-        Ok(1) => Ok(HyParViewMessage::ForwardJoinMessage(ForwardJoin::deserialize(reader).ok().expect("failed to deserailize the forward join"), addr)),
-        Ok(2) => Ok(HyParViewMessage::JoinAckMessage(JoinAck::new(), addr)),
-        Ok(3) => Ok(HyParViewMessage::DisconnectMessage(Disconnect::new(), addr)),
-        Ok(4) => Ok(HyParViewMessage::NeighborRequestMessage(NeighborRequest::deserialize(reader).ok().expect("failed to deserailize the neighbor request"), addr)),
-        Ok(5) => Ok(HyParViewMessage::NeighborResponseMessage(NeighborResponse::deserialize(reader).ok().expect("failed to deserailize the neighbor response"), addr)),
-        Ok(6) => Ok(HyParViewMessage::ShuffleMessage(Shuffle::deserialize(reader).ok().expect("failed to deserailize the shuffle"), addr)),
-        Ok(7) => Ok(HyParViewMessage::ShuffleReplyMessage(ShuffleReply::deserialize(reader).ok().expect("failed to deserailize the shuffle reply"), addr)),
-        Err(e) => Err(e),
+pub fn deserialize(reader: &mut TcpStream) -> IoResult<HyParViewMessage> {
+    let header = match Header::deserialize(reader) {
+        Ok(header) => header,
+        Err(e) => return Err(e),
+    };
+
+    match header.msg_id {
+        0 => Ok(HyParViewMessage::JoinMessage(Join::new(), header.sender)),
+        1 => Ok(HyParViewMessage::ForwardJoinMessage(ForwardJoin::deserialize(reader).ok().expect("failed to deserailize the forward join"), header.sender)),
+        2 => Ok(HyParViewMessage::JoinAckMessage(JoinAck::new(), header.sender)),
+        3 => Ok(HyParViewMessage::DisconnectMessage(Disconnect::new(), header.sender)),
+        4 => Ok(HyParViewMessage::NeighborRequestMessage(NeighborRequest::deserialize(reader).ok().expect("failed to deserailize the neighbor request"), header.sender)),
+        5 => Ok(HyParViewMessage::NeighborResponseMessage(NeighborResponse::deserialize(reader).ok().expect("failed to deserailize the neighbor response"), header.sender)),
+        6 => Ok(HyParViewMessage::ShuffleMessage(Shuffle::deserialize(reader).ok().expect("failed to deserailize the shuffle"), header.sender)),
+        7 => Ok(HyParViewMessage::ShuffleReplyMessage(ShuffleReply::deserialize(reader).ok().expect("failed to deserailize the shuffle reply"), header.sender)),
         _ => Err(IoError{ kind: IoErrorKind::InvalidInput, desc: "unknown message id passed in".as_slice(), detail: None }),
+    }
+}
+
+struct Header {
+    sender: SocketAddr,
+    msg_id: u8,
+}
+impl Header {
+    fn new(sender: &SocketAddr, msg_id: u8) -> Header {
+        Header { sender: *sender, msg_id: msg_id }
+    }
+
+    fn serailize(&self, writer: &mut Writer) -> IoResult<int> {
+        let mut cnt = 1;
+        match serialize_socket_addr(&self.sender, writer) {
+            Ok(c) => cnt += c,
+            Err(e) => return Err(e),
+        }
+        writer.write_u8(self.msg_id).ok();
+        cnt += 1;
+        Ok(cnt)
+    }
+
+    fn deserialize(reader: &mut Reader) -> IoResult<Header> {
+        // TODO: this is a bit verbose, both match clauses
+        let sender = match deserialize_socket_addr(reader) {
+            Ok(socket) => socket,
+            Err(e) => return Err(e),
+        };
+
+        let msg_id = match reader.read_u8() {
+            Ok(id) => id,
+            Err(e) => return Err(e),
+        };
+        Ok(Header { sender: sender, msg_id: msg_id })
     }
 }
 
@@ -70,7 +108,8 @@ fn serialize_socket_addr(sa: &SocketAddr, writer: &mut Writer) -> IoResult<int> 
 
 /// helper function to efficiently deserialize a SocketAddr
 fn deserialize_socket_addr(reader: &mut Reader) -> IoResult<SocketAddr> {
-    let mut buf = [0u8, ..4];
+//    let mut buf = [0u8, ..4];
+    let mut buf = Vec::with_capacity(4);
     let mut i = 0;
     while i < buf.len() {
         buf[i] = reader.read_u8().ok().expect("couldn't read next byte for ip address");
@@ -83,7 +122,7 @@ fn deserialize_socket_addr(reader: &mut Reader) -> IoResult<SocketAddr> {
     Ok(sa)
 }
 
-#[deriving(Copy,Show)]
+#[derive(Copy,Show)]
 //TODO: add a message uuid so we can register a callback (to make sure the join message gets a reponse, else resend the request)
 pub struct Join;
 impl Join {
@@ -91,13 +130,12 @@ impl Join {
         Join
     }
 
-    pub fn serialize(&self, writer: &mut Writer) -> IoResult<int> {
-        writer.write_u8(HPV_MSG_ID_JOIN).ok();
-        Ok(1)
+    pub fn serialize(&self, writer: &mut Writer, sender: &SocketAddr) -> IoResult<int> {
+        Header::new(sender, HPV_MSG_ID_JOIN).serailize(writer)
     }
 }
 
-#[deriving(Copy,Show)]
+#[derive(Copy,Show)]
 pub struct ForwardJoin {
     pub originator: SocketAddr,
     pub arwl: u8,
@@ -121,9 +159,13 @@ impl ForwardJoin {
         }
     }
 
-    pub fn serialize(&self, writer: &mut Writer) -> IoResult<int> {
-        writer.write_u8(HPV_MSG_ID_FORWARD_JOIN).ok();
-        let mut cnt = 1;
+    pub fn serialize(&self, writer: &mut Writer, sender: &SocketAddr) -> IoResult<int> {
+        let mut cnt = 0;
+        let header = Header::new(sender, HPV_MSG_ID_FORWARD_JOIN);
+        match header.serailize(writer) {
+            Ok(c) => cnt += c,
+            Err(e) => return Err(e),
+        }
 
         match serialize_socket_addr(&self.originator, writer) {
             Ok(c) => cnt += c,
@@ -165,33 +207,31 @@ fn test_join_serialization() {
     assert_eq!(return_fjoin_msg.ttl, ttl);
 }
 
-#[deriving(Copy,Show)]
+#[derive(Copy,Show)]
 pub struct Disconnect;
 impl Disconnect {
     pub fn new() -> Disconnect {
         Disconnect
     }
 
-     pub fn serialize(&self, writer: &mut Writer) -> IoResult<int> {
-        writer.write_u8(HPV_MSG_ID_DISCONNECT).ok();
-        Ok(1)
+     pub fn serialize(&self, writer: &mut Writer, sender: &SocketAddr) -> IoResult<int> { 
+        Header::new(sender, HPV_MSG_ID_DISCONNECT).serailize(writer)
     }
 }
 
-#[deriving(Copy,Show)]
+#[derive(Copy,Show)]
 pub struct JoinAck;
 impl JoinAck {
     pub fn new() -> JoinAck {
         JoinAck
     }
 
-    pub fn serialize(&self, writer: &mut Writer) -> IoResult<int> {
-        writer.write_u8(HPV_MSG_ID_JOIN_ACK).ok();
-        Ok(1)
+    pub fn serialize(&self, writer: &mut Writer, sender: &SocketAddr) -> IoResult<int> {
+        Header::new(sender, HPV_MSG_ID_JOIN_ACK).serailize(writer)
     }
 }
 
-#[deriving(Copy,Show)]
+#[derive(Copy,Show)]
 pub struct NeighborRequest {
     pub priority: Priority,
 }
@@ -210,18 +250,25 @@ impl NeighborRequest {
         Ok(NeighborRequest::new(p))
     }
 
-    pub fn serialize(&self, writer: &mut Writer) -> IoResult<int> {
-        writer.write_u8(HPV_MSG_ID_NEIGHBOR_REQUEST).ok();
+    pub fn serialize(&self, writer: &mut Writer, sender: &SocketAddr) -> IoResult<int> {
+        let mut cnt = 0;
+        let header = Header::new(sender, HPV_MSG_ID_NEIGHBOR_REQUEST);
+        match header.serailize(writer) {
+            Ok(c) => cnt += c,
+            Err(e) => return Err(e),
+        }
+
         let p: u8 = match self.priority {
             Priority::Low => 0,
             Priority::High => 1,
         };
         writer.write_u8(p).ok();
-        Ok(2)
+        cnt += 1;
+        Ok(cnt)
     }
 }
 
-#[deriving(Copy,Show)]
+#[derive(Copy,Show)]
 pub struct NeighborResponse {
     pub result: Result,
 }
@@ -240,18 +287,25 @@ impl NeighborResponse {
         Ok(NeighborResponse::new(r))
     }
 
-    pub fn serialize(&self, writer: &mut Writer) -> IoResult<int> {
-        writer.write_u8(HPV_MSG_ID_NEIGHBOR_RESPONSE).ok();
+    pub fn serialize(&self, writer: &mut Writer, sender: &SocketAddr) -> IoResult<int> {
+        let mut cnt = 0;
+        let header = Header::new(sender, HPV_MSG_ID_NEIGHBOR_RESPONSE);
+        match header.serailize(writer) {
+            Ok(c) => cnt += c,
+            Err(e) => return Err(e),
+        }
+
         let p: u8 = match self.result {
             Result::Accept => 0,
             Result::Reject => 1,
         };
         writer.write_u8(p).ok();
-        Ok(2)
+        cnt += 1;
+        Ok(cnt)
     }
 }
 
-#[deriving(Show)]
+#[derive(Show)]
 pub struct Shuffle {
     pub originator: SocketAddr,
     pub nodes: Vec<SocketAddr>,
@@ -269,9 +323,13 @@ impl Shuffle {
         Ok(Shuffle::new(originator, nodes, ttl))
     }
 
-    pub fn serialize(&self, writer: &mut Writer) -> IoResult<int> {
-        writer.write_u8(HPV_MSG_ID_SHUFFLE).ok();
-        let mut cnt = 1;
+    pub fn serialize(&self, writer: &mut Writer, sender: &SocketAddr) -> IoResult<int> {
+        let mut cnt = 0;
+        let header = Header::new(sender, HPV_MSG_ID_SHUFFLE);
+        match header.serailize(writer) {
+            Ok(c) => cnt += c,
+            Err(e) => return Err(e),
+        }
 
         match serialize_socket_addr(&self.originator, writer) {
             Ok(c) => cnt += c,
@@ -290,7 +348,7 @@ impl Shuffle {
 }
 
 fn deserialize_socket_addrs(reader: &mut Reader) -> Vec<SocketAddr> {
-    let len = reader.read_u8().ok().expect("could not read vector size from stream").to_uint().unwrap();
+    let len = reader.read_u8().ok().expect("could not read vector size from stream") as uint;
     let mut nodes = Vec::with_capacity(len);
 
     for _ in range (0u, len) {
@@ -304,7 +362,7 @@ fn deserialize_socket_addrs(reader: &mut Reader) -> Vec<SocketAddr> {
 
 fn serialize_socket_addrs(nodes: &Vec<SocketAddr>, writer: &mut Writer) -> IoResult<int> {
     let mut cnt = 0;
-    writer.write_u8(nodes.len().to_u8().unwrap()).ok();
+    writer.write_u8(nodes.len() as u8).ok().expect("failed to write vec len");
     cnt += 1;
     
     for node in nodes.iter() {
@@ -316,7 +374,7 @@ fn serialize_socket_addrs(nodes: &Vec<SocketAddr>, writer: &mut Writer) -> IoRes
     Ok(cnt)
 }
 
-#[deriving(Show)]
+#[derive(Show)]
 pub struct ShuffleReply {
     /// return the vector of nodes the originator first sent out; that way the originator does not need to keep track of that.
     pub sent_nodes: Vec<SocketAddr>,
@@ -333,9 +391,13 @@ impl ShuffleReply {
         Ok(ShuffleReply::new(sent_nodes, nodes))
     }
 
-    pub fn serialize(&self, writer: &mut Writer) -> IoResult<int> {
-        writer.write_u8(HPV_MSG_ID_SHUFFLE_REPLY).ok();
-        let mut cnt = 1;
+    pub fn serialize(&self, writer: &mut Writer, sender: &SocketAddr) -> IoResult<int> {
+        let mut cnt = 0;
+        let header = Header::new(sender, HPV_MSG_ID_SHUFFLE_REPLY);
+        match header.serailize(writer) {
+            Ok(c) => cnt += c,
+            Err(e) => return Err(e),
+        }
 
         match serialize_socket_addrs(&self.sent_nodes, writer) {
             Ok(c) => cnt += c,

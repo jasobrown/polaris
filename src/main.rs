@@ -9,6 +9,7 @@ use std::io::{TcpListener,TcpStream,Acceptor,Listener};
 use std::os;
 use std::sync::Arc;
 use std::thread::Thread;
+use std::sync::mpsc::{channel,Sender};
 
 fn main() {
     println!("starting polaris");
@@ -41,9 +42,15 @@ fn main() {
 fn handle_client(mut stream: TcpStream, sender: Sender<HyParViewMessage>) {
     let addr = stream.peer_name().ok().expect("failed to get the remote peer addr from an open socket.");
     println!("got a connection from {}", addr);
-    match hyparview::messages::deserialize(&mut stream, addr) {
-        Ok(msg) => sender.send(msg),
-        Err(e) => println!("failed to parse incoming message: {}", e),
+    let res = hyparview::messages::deserialize(&mut stream);
+    if res.is_ok() {
+        match sender.send(res.unwrap()) {
+            Ok(_) => {},
+            Err(e) => println!("failed to send task:{}", e),
+        };
+    } else {
+        //TODO: learn to print out the err message
+        println!("failed to parse incoming message");
     }
     // TODO send a 'socket closed' event to the hyparview controller
 }

@@ -46,7 +46,7 @@ impl Config {
         let shuffle_walk_length: u8 = line.as_slice().trim().parse().expect("expected an int");
 
         Config { local_addr: local_addr, contact_nodes: contact_nodes, active_random_walk_length: arwl, passive_random_walk_length: prwl,
-                 active_view_size: active_size.to_uint().unwrap(), passive_view_size: passive_size.to_uint().unwrap(), shuffle_period_seconds: shuffle_period, 
+                 active_view_size: active_size as uint, passive_view_size: passive_size as uint, shuffle_period_seconds: shuffle_period, 
                  shuffle_active_view_count: shuffle_active_cnt, shuffle_passive_view_count: shuffle_passive_count, shuffle_walk_length: shuffle_walk_length}
     }
 
