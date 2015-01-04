@@ -150,7 +150,6 @@ impl HyParViewContext {
         if !HyParViewContext::contains(&*self.active_view.read(), peer) {
             println!("{}, not in active_view, so adding it; active_View_size = {}", peer, self.config.active_view_size);
             self.active_view.write().push(*peer);
-            println!("in add_to_active_view 2");
 
             while self.active_view.read().len() > self.config.active_view_size {
                 println!("remove random node from active_list");
@@ -162,8 +161,6 @@ impl HyParViewContext {
                 discon.serialize(&mut socket);
             }
         }
-
-        println!("middle of add_to_active_view");
 
         // check if the node is in the passive view, and remove it
         // also, we should never get into the situation where a node is in both the active and passive lists
