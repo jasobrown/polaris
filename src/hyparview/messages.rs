@@ -108,11 +108,10 @@ fn serialize_socket_addr(sa: &SocketAddr, writer: &mut Writer) -> IoResult<int> 
 
 /// helper function to efficiently deserialize a SocketAddr
 fn deserialize_socket_addr(reader: &mut Reader) -> IoResult<SocketAddr> {
-//    let mut buf = [0u8, ..4];
     let mut buf = Vec::with_capacity(4);
     let mut i = 0;
-    while i < buf.len() {
-        buf[i] = reader.read_u8().ok().expect("couldn't read next byte for ip address");
+    while i < 4 {
+        buf.push(reader.read_u8().ok().expect("couldn't read next byte for ip address"));
         i += 1;
     }
     let ip = Ipv4Addr (buf[0], buf[1], buf[2], buf[3]);
