@@ -190,11 +190,11 @@ fn test_join_serialization() {
     let prwl = 3u8;
     let ttl = 4u8;
 
-    let sock_addr: SocketAddr = from_str("127.0.0.1:9090").expect("invalid socket addr");
+    let sock_addr: SocketAddr = ("127.0.0.1:9090").parse().expect("invalid socket addr");
     let fjoin_msg = ForwardJoin::new(&sock_addr, arwl, prwl, ttl);
     let vec = Vec::new();
     let mut writer = BufferedWriter::new(vec);
-    let result = fjoin_msg.serialize(&mut writer);
+    let result = fjoin_msg.serialize(&mut writer, &sock_addr);
     
     let vec = writer.into_inner();
     let mut reader = MemReader::new(vec);

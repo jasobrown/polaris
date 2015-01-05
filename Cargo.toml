@@ -7,9 +7,13 @@ authors = ["Jason Brown <jasedbrown@gmail.com>"]
 [[bin]]
 name = "polaris"
 
-#[dependencies.log]
-#path = "../rust-log"
+[dependencies.log]
+path = "../rust-log"
 #git = "https://github.com/rust-lang/log.git"
 
-#[dependencies.time]
+[dependencies.regex]
+path = "../rust-regex"
+
+[dependencies.time]
+path = "../rust-time"
 #git = "https://github.com/rust-lang/time.git"

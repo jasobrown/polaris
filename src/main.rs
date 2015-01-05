@@ -1,3 +1,5 @@
+#![feature(slicing_syntax)]
+
 extern crate getopts;
 
 use config::Config;
@@ -27,7 +29,6 @@ fn main() {
     let listener = TcpListener::bind(config_cpy.local_addr);
     let mut acceptor = listener.listen();
     for conn in acceptor.incoming() {
-        println!("aceepting an incoming connection!");
         let tx = tx.clone();
         match conn {
             Err(e) => println!("failure with acceptor: {}", e),
@@ -41,8 +42,6 @@ fn main() {
 }
 
 fn handle_client(mut stream: TcpStream, sender: Sender<HyParViewMessage>) {
-    let addr = stream.peer_name().ok().expect("failed to get the remote peer addr from an open socket.");
-    println!("got a connection from {}", addr);
     let res = hyparview::messages::deserialize(&mut stream);
     if res.is_ok() {
         match sender.send(res.unwrap()) {
