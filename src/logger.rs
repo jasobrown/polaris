@@ -1,0 +1,54 @@
+ #![feature(phase)]  
+ #[phase(plugin, link)]extern crate log;  
+ #[phase(plugin, link)]extern crate time;
+
+use config::Config;
+use log::{Logger,LogRecord};
+use std::io::{File, Open, Write,USER_RWX};
+use std::os::tmpdir;
+use std::io::fs::{mkdir_recursive,PathExtensions};
+use std::sync::Arc;
+use time::{now,strftime};
+
+// based on http://joshitech.blogspot.com/2014/12/rust-customer-logger.html
+pub struct LocalLogger {
+    file: File,
+}
+impl LocalLogger {
+    pub fn new(config: Arc<Config>, ) -> LocalLogger {
+        let mut p = tmpdir().clone();
+        p.push("polaris");
+        if !p.exists() {
+            match mkdir_recursive(&p, USER_RWX) {
+                Ok(_) => {}
+                Err(e) => panic!("failed to create tmp dir {}; {}", p.as_str(), e),
+            };
+        }
+
+
+        p.push(format!("{}", config.local_addr));
+        info!("will log at file {}", p.as_str());
+        let file = match File::open_mode(&p, Open, Write) {
+            Ok(f) => f,
+            Err(e) => panic!("file error: {}", e),
+        };
+
+        LocalLogger { file: file }
+    }
+}
+impl Logger for LocalLogger {
+    fn log(&mut self, record: &LogRecord) {
+        println!("got a log request");
+        match writeln!(&mut self.file,
+                       "{} {} {}:{} (line {}) {}",
+                       record.level,
+                       time::strftime("%Y-%m-%d %H:%M:%S.%f %Z", &time::now()).unwrap(),
+                       record.module_path,
+                       record.file,
+                       record.line,
+                       record.args) {
+            Ok(()) => {}
+            Err(e) => println!("failed to log: {}", e),
+        }
+    }  
+}

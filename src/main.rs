@@ -1,37 +1,45 @@
 #![feature(slicing_syntax)]
 
+#![feature(phase)]
+#[phase(plugin, link)] extern crate log;
 extern crate getopts;
+extern crate time;
 
 use config::Config;
 use getopts::{optopt,optflag,getopts,OptGroup,usage};
 use hyparview::messages::{deserialize,HyParViewMessage};
+use log::set_logger;
+use logger::LocalLogger;
 use std::io::{TcpListener,TcpStream,Acceptor,Listener};
 use std::os;
 use std::sync::Arc;
 use std::thread::Thread;
 use std::sync::mpsc::{channel,Sender};
 
-mod hyparview;
 mod config;
+mod hyparview;
+mod logger;
 
 fn main() {
-    println!("starting polaris");
+    info!("starting polaris");
     let opts = Opts::read_opts();
     let config = box Config::load_config(opts.config_file.as_slice());
     let config_arc = Arc::new(*config);
+
+    set_logger(box LocalLogger::new(config_arc.clone()));
     let (tx, rx) = channel::<HyParViewMessage>();
 
     // TODO: init hyparview *after* binding to the socket
     hyparview::start_service(config_arc.clone(), rx);
 
     let config_cpy = config_arc.clone();
-    println!("going to bind to addr: {}", config_cpy.local_addr);
+    info!("binding to local addr: {}", config_cpy.local_addr);
     let listener = TcpListener::bind(config_cpy.local_addr);
     let mut acceptor = listener.listen();
     for conn in acceptor.incoming() {
         let tx = tx.clone();
         match conn {
-            Err(e) => println!("failure with acceptor: {}", e),
+            Err(e) => error!("failure with acceptor: {}", e),
             // TODO: this builds a new thread per client, maybe just want some TaskPool/handler instead - or mio (https://github.com/carllerche/mio)
             Ok(conn) => Thread::spawn(move || {
                 let conn = conn.clone();
@@ -42,15 +50,14 @@ fn main() {
 }
 
 fn handle_client(mut stream: TcpStream, sender: Sender<HyParViewMessage>) {
-    let res = hyparview::messages::deserialize(&mut stream);
-    if res.is_ok() {
-        match sender.send(res.unwrap()) {
-            Ok(_) => {},
-            Err(e) => println!("failed to send task:{}", e),
-        };
-    } else {
-        //TODO: learn to print out the err message
-        println!("failed to parse incoming message");
+    match hyparview::messages::deserialize(&mut stream) {
+        Ok(msg) => {
+            match sender.send(msg) {
+                Ok(_) => {},
+                Err(e) => error!("failed to send task:{}", e),
+            };
+        },
+        Err(e) => error!("failed to parse incoming message: {}", e),
     }
     // TODO send a 'socket closed' event to the hyparview controller
 }

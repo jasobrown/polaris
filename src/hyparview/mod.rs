@@ -1,5 +1,7 @@
 use config::Config;
 use hyparview::messages::{HyParViewMessage,Disconnect,ForwardJoin,Join,JoinAck,NeighborRequest,NeighborResponse,Priority,Result,Shuffle,ShuffleReply};
+use log::set_logger;
+use logger::LocalLogger;
 use std::io::Timer;
 use std::io::net::ip::SocketAddr;
 use std::io::net::tcp::TcpStream;
@@ -32,19 +34,19 @@ impl HyParViewContext {
 
     /// call a random contact_node and send a 'JOIN' message
     pub fn join(&self) {
-        println!("in join()");
+        debug!("in join()");
        // TODO: add callback to ensure we got a response (Neighbor) msg from some peer
         let contact_nodes = &self.config.contact_nodes;
 
          if contact_nodes.len() == 0 || contact_nodes.len() == 1 && contact_nodes[0].eq(&self.config.local_addr) {
-            println!("no unique contact node addresses available");
+            info!("no unique contact node addresses available");
             return;
         }
 
         let rand: uint = rand::random();
         let idx = rand % contact_nodes.len();
         let node = contact_nodes[idx];
-        println!("sending join request to {}", node);
+        debug!("sending join request to {}", node);
         let msg = Join::new();
         let mut socket = TcpStream::connect(node).ok().expect("failed to open connection to peer");
         msg.serialize(&mut socket, &self.config.local_addr);
@@ -55,7 +57,7 @@ impl HyParViewContext {
         let periodic = timer.periodic(Duration::seconds(20));
         loop {
             periodic.recv().unwrap();
-            println!("start of next shuffle round, active_view len = {}", self.active_view.read().unwrap().len());
+            debug!("start of next shuffle round");
             match self.active_view.read().unwrap().len() {
                 0 => self.join(),
                 _ => self.do_shuffle(),
@@ -64,7 +66,7 @@ impl HyParViewContext {
     }
 
     fn do_shuffle(&self) {
-        println!("in do_shuffle()");
+        debug!("in do_shuffle()");
         let active_view = self.active_view.read().unwrap();
         let target_addr = HyParViewContext::select_random(&*active_view);
         let nodes = self.build_shuffle_list(&*active_view, target_addr);
@@ -83,7 +85,7 @@ impl HyParViewContext {
             let mut socket = TcpStream::connect(*addr).ok().expect("failed to open connection to peer");
             shuffle.serialize(&mut socket, &self.config.local_addr);
         }
-        println!("end do_shuffle()");
+        debug!("end do_shuffle()");
     }
 
     fn build_shuffle_list(&self, active_view: &Vec<SocketAddr>, target_addr: &SocketAddr) -> Vec<SocketAddr> {
@@ -146,7 +148,7 @@ impl HyParViewContext {
     fn handle_join(&self, sender: &SocketAddr) {
         let forward_join = ForwardJoin::new(sender, self.config.active_random_walk_length, self.config.passive_random_walk_length, self.config.active_random_walk_length);
         for peer in self.active_view.read().unwrap().iter() { 
-            println!("sending forward join to {}", peer);
+            info!("sending forward join to {}", peer);
             let mut socket = TcpStream::connect(*peer).ok().expect("failed to open connection to peer");
             forward_join.serialize(&mut socket, &self.config.local_addr);
         }
@@ -163,7 +165,7 @@ impl HyParViewContext {
             self.active_view.write().unwrap().push(*peer);
 
             while self.active_view.read().unwrap().len() > self.config.active_view_size {
-                println!("remove random node from active_list");
+                debug!("remove random node from active_list");
                 let removed = self.active_view.write().unwrap().remove(0);
                 self.add_to_passive_view(&removed);
 
@@ -195,13 +197,13 @@ impl HyParViewContext {
 
     fn send_join_ack(&self, peer: &SocketAddr) {
         // send an 'ack' message back to the sender - currently in leiu of maintaining an open, mutable tcp connection (but I like this anyways :) )
-        println!("sending join ack to {}", peer);
+        info!("sending join ack to {}", peer);
         match TcpStream::connect(*peer)  { 
             Ok(ref mut conn) => {
                 let ack = JoinAck::new();
                 ack.serialize(conn, &self.config.local_addr);
             },
-            Err(e) => println!("could not connect to node that wants to JOIN to send the join_ack: {}", e),
+            Err(e) => warn!("could not connect to node that wants to JOIN to send the join_ack: {}", e),
         }
     }
 
@@ -224,7 +226,7 @@ impl HyParViewContext {
     }
 
     fn handle_forward_join(&self, msg: &ForwardJoin, sender: &SocketAddr) {
-        println!("in handle_forward_join from {}", sender);
+        debug!("in handle_forward_join from {}", sender);
         if self.active_view.read().unwrap().len() <= 1 || msg.ttl == 0 {
             self.add_to_active_view(&msg.originator);
             self.send_join_ack(&msg.originator);
@@ -336,10 +338,10 @@ impl HyParViewContext {
     }
 
     fn handle_shuffle(&self, msg: Shuffle, sender: &SocketAddr) {
-        println!("in handle_shuffle");
+        debug!("in handle_shuffle");
         // first, determine if this node should handle the request or pass it on down
         if msg.ttl > 0 && self.active_view.read().unwrap().len() > 1 {
-            println!("in handle_shuffle, going to forward the request");
+            debug!("in handle_shuffle, going to forward the request");
             let &mut addr = sender;
             while addr.eq(sender) || addr.eq(&self.config.local_addr) {
                 addr = *HyParViewContext::select_random(&*self.active_view.read().unwrap());
@@ -349,7 +351,7 @@ impl HyParViewContext {
                     let shuffle = Shuffle::new(msg.originator, msg.nodes, msg.ttl - 1);
                     shuffle.serialize(&mut* socket, &self.config.local_addr);
                 },
-                Err(e) => println!("failed to open connection to peer (to forward the shuffle): {}", e),
+                Err(e) => warn!("failed to open connection to peer (to forward the shuffle): {}", e),
             }
             return;
         }
@@ -363,7 +365,7 @@ impl HyParViewContext {
                 let shuffle_reply = ShuffleReply::new(msg.nodes, nodes);
                 shuffle_reply.serialize(&mut* socket, &self.config.local_addr);
             },
-            Err(e) => println!("failed to send shuffle reply: {}", e),
+            Err(e) => warn!("failed to send shuffle reply: {}", e),
         }
     }
 
@@ -399,14 +401,14 @@ impl HyParViewContext {
     }
 
     fn handle_shuffle_reply(&self, msg: &ShuffleReply) {
-        println!("in handle_shuffle_reply");
+        debug!("in handle_shuffle_reply");
         self.apply_shuffle(&msg.nodes, &msg.sent_nodes);
     }
 }
 
 pub fn start_service(config: Arc<Config>, rx: Receiver<HyParViewMessage>) {
-    println!("starting up hyparview");
-    let hpv = HyParViewContext::new(config);
+    info!("starting up hyparview");
+    let hpv = HyParViewContext::new(config.clone());
     let ctx = Arc::new(hpv);
 
     // let ctx_clone = ctx.clone();
@@ -415,7 +417,9 @@ pub fn start_service(config: Arc<Config>, rx: Receiver<HyParViewMessage>) {
     // }).detach();
 
     let ctx_clone = ctx.clone();
+    let config_clone = config.clone();
     Thread::spawn(move ||  {
+        set_logger(box LocalLogger::new(config_clone));
         ctx_clone.listen(rx);
     }).detach();
 

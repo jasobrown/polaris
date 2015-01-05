@@ -101,7 +101,7 @@ fn serialize_socket_addr(sa: &SocketAddr, writer: &mut Writer) -> IoResult<int> 
             writer.write_u8(d).ok();
             writer.write_be_u16(sa.port).ok();
         },
-        _ => println!("dont care yet!"),
+        _ => info!("problem writing socket addr to stream!"),
     }
     Ok(4 + 2)
 }
@@ -243,8 +243,10 @@ impl NeighborRequest {
         let p = match reader.read_u8().ok().expect("could not read priority from stream") {
             0 => Priority::Low,
             1 => Priority::High,
-            //println!("received unknown priority level, defaulting to low priority");
-            _ =>  Priority::Low,
+            _ =>  {
+                info!("received unknown priority level, defaulting to low priority");
+                Priority::Low
+            },
         };
         Ok(NeighborRequest::new(p))
     }
@@ -353,7 +355,7 @@ fn deserialize_socket_addrs(reader: &mut Reader) -> Vec<SocketAddr> {
     for _ in range (0u, len) {
         match deserialize_socket_addr(reader) {
             Ok(socket) => nodes.push(socket),
-            Err(_) => println!("failed"),
+            Err(e) => error!("failed to deserialize socket addr: {}", e),
         }
     }
     nodes
