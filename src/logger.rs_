@@ -1,0 +1,33 @@
+extern crate log;
+extern crate time;
+
+use config::Config;
+use log::{Logger,LogRecord,LogLevel,LogLocation};
+use std::io::{ LineBufferedWriter, stdio, stderr} ;
+
+// based on http://joshitech.blogspot.com/2014/12/rust-customer-logger.html
+pub struct LocalLogger {
+    // replace with writing to a file (passed in via config)
+    handle: LineBufferedWriter<stdio::StdWriter>,
+}
+impl LocalLogger {
+    pub fn new(config: Arc<Config>, ) -> LocalLogger {
+        let c = config.clone();
+        LocalLogger { handle: stdio() }
+    }
+}
+impl Logger for LocalLogger {
+    fn log(&mut self, record: &LogRecord) {  
+        match writeln!(&mut self.handle,  
+                       "{}:{}:{}:{}:{} {}",  
+                       time::strftime("%Y-%m-%d %H:%M:%S %Z", &time::now()).unwrap(),  
+                       record.level,  
+                       record.module_path,  
+                       record.file,  
+                       record.line,  
+                       record.args) {  
+            Ok(()) => {}  
+            Err(e) => panic!("failed to log: {}", e),  
+        }  
+    }  
+}

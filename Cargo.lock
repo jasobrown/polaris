@@ -1,19 +1,4 @@
 [root]
 name = "polaris"
 version = "0.0.1"
-dependencies = [
- "config 0.0.1",
- "hyparview 0.0.1",
-]
-
-[[package]]
-name = "config"
-version = "0.0.1"
-
-[[package]]
-name = "hyparview"
-version = "0.0.1"
-dependencies = [
- "config 0.0.1",
-]
 

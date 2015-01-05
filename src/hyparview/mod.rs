@@ -1,8 +1,7 @@
 #![feature(slicing_syntax)]
-extern crate config;
 
 use config::Config;
-use messages::{HyParViewMessage,Disconnect,ForwardJoin,Join,JoinAck,NeighborRequest,NeighborResponse,Priority,Result,Shuffle,ShuffleReply};
+use hyparview::messages::{HyParViewMessage,Disconnect,ForwardJoin,Join,JoinAck,NeighborRequest,NeighborResponse,Priority,Result,Shuffle,ShuffleReply};
 use std::io::Timer;
 use std::io::net::ip::SocketAddr;
 use std::io::net::tcp::TcpStream;

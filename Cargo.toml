@@ -7,8 +7,9 @@ authors = ["Jason Brown <jasedbrown@gmail.com>"]
 [[bin]]
 name = "polaris"
 
-[dependencies.config]
-path = "src/config"
+#[dependencies.log]
+#path = "../rust-log"
+#git = "https://github.com/rust-lang/log.git"
 
-[dependencies.hyparview]
-path = "src/hyparview"
+#[dependencies.time]
+#git = "https://github.com/rust-lang/time.git"

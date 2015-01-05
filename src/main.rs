@@ -1,6 +1,4 @@
-extern crate config;
 extern crate getopts;
-extern crate hyparview;
 
 use config::Config;
 use getopts::{optopt,optflag,getopts,OptGroup,usage};
@@ -10,6 +8,9 @@ use std::os;
 use std::sync::Arc;
 use std::thread::Thread;
 use std::sync::mpsc::{channel,Sender};
+
+mod hyparview;
+mod config;
 
 fn main() {
     println!("starting polaris");
