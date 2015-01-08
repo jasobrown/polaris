@@ -1,9 +1,12 @@
 #![feature(slicing_syntax)]
 
-#![feature(phase)]
-#[phase(plugin, link)] extern crate log;
+//#![feature(phase)]
+
+//#[phase(plugin, link)] extern crate log;
+#[macro_use] extern crate log;
+#[macro_use] extern crate time;
+
 extern crate getopts;
-extern crate time;
 
 use config::Config;
 use getopts::{optopt,optflag,getopts,OptGroup,usage};
@@ -24,26 +27,25 @@ fn main() {
     info!("starting polaris");
     let opts = Opts::read_opts();
     let config = box Config::load_config(opts.config_file.as_slice());
+
+    set_logger(box LocalLogger::new(&*config));
+
     let config_arc = Arc::new(*config);
-
-    set_logger(box LocalLogger::new(config_arc.clone()));
-    let (tx, rx) = channel::<HyParViewMessage>();
-
-    // TODO: init hyparview *after* binding to the socket
-    hyparview::start_service(config_arc.clone(), rx);
-
     let config_cpy = config_arc.clone();
     info!("binding to local addr: {}", config_cpy.local_addr);
     let listener = TcpListener::bind(config_cpy.local_addr);
     let mut acceptor = listener.listen();
+
+    let sender = hyparview::start_service(config_arc.clone());
+
     for conn in acceptor.incoming() {
-        let tx = tx.clone();
+        let sender = sender.clone();
         match conn {
             Err(e) => error!("failure with acceptor: {}", e),
             // TODO: this builds a new thread per client, maybe just want some TaskPool/handler instead - or mio (https://github.com/carllerche/mio)
             Ok(conn) => Thread::spawn(move || {
                 let conn = conn.clone();
-                handle_client(conn, tx);
+                handle_client(conn, sender);
             }).detach(),
         }
     }

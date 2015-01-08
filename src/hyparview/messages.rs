@@ -34,6 +34,11 @@ pub enum HyParViewMessage {
     NeighborResponseMessage(NeighborResponse,SocketAddr),
     ShuffleMessage(Shuffle,SocketAddr),
     ShuffleReplyMessage(ShuffleReply,SocketAddr),
+
+    // control-type messages here
+    JoinBegin,
+    NextShuffleRound,
+    PeerDisconnect(SocketAddr),
 }
 
 /// top-level function for serializing a HyParView message.

@@ -8,12 +8,9 @@ authors = ["Jason Brown <jasedbrown@gmail.com>"]
 name = "polaris"
 
 [dependencies.log]
-path = "../rust-log"
-#git = "https://github.com/rust-lang/log.git"
-
-[dependencies.regex]
-path = "../rust-regex"
+#path = "../rust/rust-log"
+git = "https://github.com/rust-lang/log.git"
 
 [dependencies.time]
-path = "../rust-time"
+path = "../rust/rust-time"
 #git = "https://github.com/rust-lang/time.git"

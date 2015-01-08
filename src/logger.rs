@@ -1,13 +1,12 @@
- #![feature(phase)]  
- #[phase(plugin, link)]extern crate log;  
- #[phase(plugin, link)]extern crate time;
+//#[phase(plugin, link)]extern crate log;  
+//#[phase(plugin, link)]extern crate time;
+extern crate time;
 
 use config::Config;
 use log::{Logger,LogRecord};
 use std::io::{File, Open, Write,USER_RWX};
 use std::os::tmpdir;
 use std::io::fs::{mkdir_recursive,PathExtensions};
-use std::sync::Arc;
 use time::{now,strftime};
 
 // based on http://joshitech.blogspot.com/2014/12/rust-customer-logger.html
@@ -15,7 +14,7 @@ pub struct LocalLogger {
     file: File,
 }
 impl LocalLogger {
-    pub fn new(config: Arc<Config>, ) -> LocalLogger {
+    pub fn new(config: &Config) -> LocalLogger {
         let mut p = tmpdir().clone();
         p.push("polaris");
         if !p.exists() {
@@ -38,11 +37,10 @@ impl LocalLogger {
 }
 impl Logger for LocalLogger {
     fn log(&mut self, record: &LogRecord) {
-        println!("got a log request");
         match writeln!(&mut self.file,
                        "{} {} {}:{} (line {}) {}",
-                       record.level,
                        time::strftime("%Y-%m-%d %H:%M:%S.%f %Z", &time::now()).unwrap(),
+                       record.level,
                        record.module_path,
                        record.file,
                        record.line,
