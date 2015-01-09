@@ -1,5 +1,5 @@
 use config::Config;
-use hyparview::messages::{HyParViewMessage,Disconnect,ForwardJoin,Join,JoinAck,NeighborRequest,NeighborResponse,Priority,Result,Shuffle,ShuffleReply};
+use hyparview::messages::{HyParViewMessage,Serializable,Disconnect,ForwardJoin,Join,JoinAck,NeighborRequest,NeighborResponse,Priority,Result,Shuffle,ShuffleReply};
 use log::set_logger;
 use logger::LocalLogger;
 use std::io::Timer;
