@@ -5,33 +5,28 @@ use logger::LocalLogger;
 use std::io::Timer;
 use std::io::net::ip::SocketAddr;
 use std::io::net::tcp::TcpStream;
-use std::iter::FromIterator;
 use std::rand;
 use std::sync::{Arc,RwLock};
 use std::time::Duration;
 use std::thread::Thread;
 use std::vec::Vec;
-use std::sync::TaskPool;
 use std::sync::mpsc::{channel,Receiver,Sender};
 
 pub mod messages;
 
 pub struct HyParViewContext {
     config: Arc<Config>,
-    // a single threaded consumer
-    task_pool: TaskPool,
 
     // NOTE: not sure I'm really doing the best thing here using RwLock, but it's allowing me to mutate the Vec, so I think I'm on the right path there.
     // however, I don't think i can retain a mutable reference to the open, outbound tcp connection (with the socket addr). thus, am punting on it for now..
     active_view: RwLock<Vec<SocketAddr>>,
-    passive_view: RwLock<Vec<SocketAddr>>
+    passive_view: RwLock<Vec<SocketAddr>>,
 }
 impl HyParViewContext {
     fn new(config: Arc<Config>) -> HyParViewContext {
         let c = config.clone();
         HyParViewContext { 
             config: config,
-            task_pool: TaskPool::new(1u),
             active_view: RwLock::new(Vec::with_capacity(c.active_view_size)),
             passive_view: RwLock::new(Vec::with_capacity(c.passive_view_size)),
         }
@@ -56,17 +51,6 @@ impl HyParViewContext {
         let mut socket = TcpStream::connect(node).ok().expect("failed to open connection to peer");
         msg.serialize(&mut socket, &self.config.local_addr);
     }
-
-    // pub fn start_shuffle_notifier(&self, sender: Sender<HyParViewMessage>) {
-    //     let mut timer = Timer::new().unwrap();
-    //     let periodic = timer.periodic(Duration::seconds(4));
-    //     loop {
-    //         periodic.recv().unwrap();
-    //         self.task_pool.execute(move || {
-    //             sender.send(HyParViewMessage::NextShuffleRound);
-    //         });
-    //     }
-    // }
 
     fn handle_next_shuffle_round(&self) {
         debug!("start of next shuffle round:\nactive_view {},\npassive_view {}", &*self.active_view.read().unwrap(), &*self.passive_view.read().unwrap());
@@ -137,10 +121,10 @@ impl HyParViewContext {
         &addrs[idx]
     }
 
-    pub fn listen(&self, rx: Receiver<HyParViewMessage>) {
+    pub fn listen(&self, receiver: Receiver<HyParViewMessage>) {
         loop {
             // TODO: try_recv() does *not* block, and might be nice for a gentle shutdown of the listener
-            match rx.recv().unwrap() {
+            match receiver.recv().unwrap() {
                 HyParViewMessage::JoinBegin => self.join(),
                 HyParViewMessage::JoinMessage(_,addr) => self.handle_join(&addr),
                 HyParViewMessage::ForwardJoinMessage(msg,addr) => self.handle_forward_join(&msg, &addr),
@@ -444,9 +428,21 @@ impl HyParViewContext {
         self.apply_shuffle(&msg.nodes, &msg.sent_nodes);
     }
         
-        fn handle_peer_failure(&self, addr: &SocketAddr){
+    fn handle_peer_failure(&self, addr: &SocketAddr){
+        
+    }
+}
 
+fn timed_shuffle(sender: Sender<HyParViewMessage>) {
+    let mut timer = Timer::new().unwrap();
+    let periodic = timer.periodic(Duration::seconds(4));
+    loop {
+        periodic.recv().unwrap();
+        match sender.send(HyParViewMessage::NextShuffleRound) {
+            Ok(_) => {},
+            Err(e) => info!("received an erro while trying to send message to begin next shuffle round: {}", e),
         }
+    };
 }
 
 pub fn start_service(config: Arc<Config>) -> Sender<HyParViewMessage> {
@@ -455,32 +451,22 @@ pub fn start_service(config: Arc<Config>) -> Sender<HyParViewMessage> {
     let ctx = Arc::new(hpv);
     let (sender, receiver) = channel::<HyParViewMessage>();
 
-    let ctx_clone = ctx.clone();
+    let hpv_clone = ctx.clone();
     let config_clone = config.clone();
-    // Thread::spawn(move ||  {
-    //     let logger = box LocalLogger::new(&*config_clone);
-    //     set_logger(logger);
-    //     ctx_clone.listen(receiver);
-    // }).detach();
+    Thread::spawn(move ||  {
+        let logger = box LocalLogger::new(&*config_clone);
+        set_logger(logger);
+        hpv_clone.listen(receiver);
+    }).detach();
 
-    // sender.send(HyParViewMessage::JoinBegin);
+    let hpv_clone = ctx.clone();
+    sender.send(HyParViewMessage::JoinBegin);
 
-    // let sender_clone = sender.clone();
-    // Thread::spawn(move || {      
-    //     let mut timer = Timer::new().unwrap();
-    //     let periodic = timer.periodic(Duration::seconds(4));
-    //     loop {
-    //         periodic.recv().unwrap();
-    //         sender_clone.send(HyParViewMessage::NextShuffleRound);
-    //     }
-    // }).detach();
+    let sender_clone = sender.clone();
+    Thread::spawn(move || {
+        timed_shuffle(sender_clone);
+    }).detach();
 
-    sender
+    sender.clone()
 }
 
-struct ShuffleTimer {
-    sender: Sender<HyParViewMessage>,
-}
-impl ShuffleTimer {
-
-}

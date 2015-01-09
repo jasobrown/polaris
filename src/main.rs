@@ -1,8 +1,5 @@
 #![feature(slicing_syntax)]
 
-//#![feature(phase)]
-
-//#[phase(plugin, link)] extern crate log;
 #[macro_use] extern crate log;
 #[macro_use] extern crate time;
 
@@ -17,7 +14,7 @@ use std::io::{TcpListener,TcpStream,Acceptor,Listener};
 use std::os;
 use std::sync::Arc;
 use std::thread::Thread;
-use std::sync::mpsc::{channel,Sender};
+use std::sync::mpsc::{Sender};
 
 mod config;
 mod hyparview;
@@ -41,12 +38,12 @@ fn main() {
     for conn in acceptor.incoming() {
         let sender = sender.clone();
         match conn {
-            Err(e) => error!("failure with acceptor: {}", e),
             // TODO: this builds a new thread per client, maybe just want some TaskPool/handler instead - or mio (https://github.com/carllerche/mio)
             Ok(conn) => Thread::spawn(move || {
                 let conn = conn.clone();
                 handle_client(conn, sender);
             }).detach(),
+            Err(e) => error!("failure with acceptor: {}", e),
         }
     }
 }
