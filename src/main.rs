@@ -23,9 +23,9 @@ mod logger;
 fn main() {
     info!("starting polaris");
     let opts = Opts::read_opts();
-    let config = box Config::load_config(opts.config_file.as_slice());
+    let config = Box::new(Config::load_config(opts.config_file.as_slice()));
 
-    set_logger(box LocalLogger::new(&*config));
+    set_logger(Box::new(LocalLogger::new(&*config)));
 
     let config_arc = Arc::new(*config);
     let config_cpy = config_arc.clone();
@@ -36,14 +36,15 @@ fn main() {
     let sender = hyparview::start_service(config_arc.clone());
 
     for conn in acceptor.incoming() {
-        let sender = sender.clone();
-        match conn {
+        if conn.is_ok() {
             // TODO: this builds a new thread per client, maybe just want some TaskPool/handler instead - or mio (https://github.com/carllerche/mio)
-            Ok(conn) => Thread::spawn(move || {
-                let conn = conn.clone();
+            let sender = sender.clone();
+            Thread::spawn(move || {
+                let conn = conn.unwrap().clone();
                 handle_client(conn, sender);
-            }).detach(),
-            Err(e) => error!("failure with acceptor: {}", e),
+            });
+        } else {
+            error!("failure with acceptor");
         }
     }
 }
@@ -53,10 +54,10 @@ fn handle_client(mut stream: TcpStream, sender: Sender<HyParViewMessage>) {
         Ok(msg) => {
             match sender.send(msg) {
                 Ok(_) => {},
-                Err(e) => error!("failed to send task:{}", e),
+                Err(e) => error!("failed to send task"),
             };
         },
-        Err(e) => error!("failed to parse incoming message: {}", e),
+        Err(e) => error!("failed to parse incoming message"),
     }
     // TODO send a 'socket closed' event to the hyparview controller
 }

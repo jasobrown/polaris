@@ -20,13 +20,13 @@ impl LocalLogger {
         if !p.exists() {
             match mkdir_recursive(&p, USER_RWX) {
                 Ok(_) => {}
-                Err(e) => panic!("failed to create tmp dir {}; {}", p.as_str(), e),
+                Err(e) => panic!("failed to create tmp dir: {}", e),
             };
         }
 
 
         p.push(format!("{}", config.local_addr));
-        info!("will log at file {}", p.as_str());
+//        info!("will log at file {}", p);
         let file = match File::open_mode(&p, Open, Write) {
             Ok(f) => f,
             Err(e) => panic!("file error: {}", e),

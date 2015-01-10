@@ -43,7 +43,7 @@ impl HyParViewContext {
             return;
         }
 
-        let rand: uint = rand::random();
+        let rand: usize = rand::random();
         let idx = rand % contact_nodes.len();
         let node = contact_nodes[idx];
         debug!("sending join request to {}", node);
@@ -53,7 +53,7 @@ impl HyParViewContext {
     }
 
     fn handle_next_shuffle_round(&self) {
-        debug!("start of next shuffle round:\nactive_view {},\npassive_view {}", &*self.active_view.read().unwrap(), &*self.passive_view.read().unwrap());
+//        debug!("start of next shuffle round:\nactive_view {},\npassive_view {}", &*self.active_view.read().unwrap(), &*self.passive_view.read().unwrap());
         match self.active_view.read().unwrap().len() {
             0 => self.join(),
             _ => self.do_shuffle(),
@@ -71,7 +71,7 @@ impl HyParViewContext {
 
         // additionally, (TODO: probablistically) choose to send to a contact_node
         // make sure current node is not the only contact node
-        if self.config.contact_nodes.len() > 1u || 
+        if self.config.contact_nodes.len() > 1us || 
             (self.config.contact_nodes[0].ne(&self.config.local_addr) && self.config.contact_nodes[0].ne(target_addr)) {
             let mut addr = &self.config.local_addr;
             while addr.eq(&self.config.local_addr) {
@@ -84,9 +84,9 @@ impl HyParViewContext {
     }
 
     fn build_shuffle_list(&self, active_view: &Vec<SocketAddr>, target_addr: &SocketAddr) -> Vec<SocketAddr> {
-        let active_cnt = self.config.shuffle_active_view_count as uint;
-        let passive_cnt = self.config.shuffle_passive_view_count as uint;
-        let mut nodes = Vec::with_capacity(1u + active_cnt + passive_cnt);
+        let active_cnt = self.config.shuffle_active_view_count as usize;
+        let passive_cnt = self.config.shuffle_passive_view_count as usize;
+        let mut nodes = Vec::with_capacity(1us + active_cnt + passive_cnt);
         nodes.push(self.config.local_addr);
         
         HyParViewContext::select_multiple_random(&*active_view, &mut nodes, target_addr, active_cnt);
@@ -95,7 +95,7 @@ impl HyParViewContext {
         nodes
     }
 
-    fn select_multiple_random(src: &Vec<SocketAddr>, dest: &mut Vec<SocketAddr>, target_addr: &SocketAddr, cnt: uint) {
+    fn select_multiple_random(src: &Vec<SocketAddr>, dest: &mut Vec<SocketAddr>, target_addr: &SocketAddr, cnt: usize) {
         if src.len() <= cnt {
             for addr in src.iter() {
                 if !HyParViewContext::contains(dest, addr) && !target_addr.eq(addr) {
@@ -116,7 +116,7 @@ impl HyParViewContext {
     }
 
     fn select_random(addrs: &Vec<SocketAddr>) -> &SocketAddr {
-        let rand: uint = rand::random();
+        let rand: usize = rand::random();
         let idx = rand % addrs.len();
         &addrs[idx]
     }
@@ -151,7 +151,7 @@ impl HyParViewContext {
         }
 
         let forward_join = ForwardJoin::new(sender, self.config.active_random_walk_length, self.config.passive_random_walk_length, self.config.active_random_walk_length);
-        info!("sending forward join for {} to peers {}", sender, &*self.active_view.read().unwrap());
+//        info!("sending forward join for {} to peers {}", sender, &*self.active_view.read().unwrap());
         for peer in self.active_view.read().unwrap().iter() { 
             let mut socket = TcpStream::connect(*peer).ok().expect("failed to open connection to peer");
             forward_join.serialize(&mut socket, &self.config.local_addr);
@@ -223,7 +223,7 @@ impl HyParViewContext {
 
     //TODO: there *must* be a better way to do this rather than reusing a java-ism :(
     // also, could sort the nodes and do a binary search, but looks like the built-in vec.search() requires 2 * n space and n log n time - yuck!
-    fn index_of(nodes: &Vec<SocketAddr>, target: &SocketAddr) -> Option<uint> {
+    fn index_of(nodes: &Vec<SocketAddr>, target: &SocketAddr) -> Option<usize> {
         let mut idx = -1;
         for sock in nodes.iter() {
             idx += 1;
@@ -255,7 +255,7 @@ impl HyParViewContext {
         let forward_join = ForwardJoin::new(&msg.originator, msg.arwl, msg.prwl, ttl);
         let active_view = self.active_view.read().unwrap();
         loop {
-            let rand: uint = rand::random();
+            let rand: usize = rand::random();
             let idx = rand % active_view.len();
             let peer = active_view[idx];
             if !peer.eq(sender) {
@@ -283,7 +283,7 @@ impl HyParViewContext {
         let contains = HyParViewContext::index_of(&*self.passive_view.read().unwrap(), sender);
         if contains.is_none() {
             while self.passive_view.read().unwrap().len() >= self.config.passive_view_size - 1 {
-                let rand: uint = rand::random();
+                let rand: usize = rand::random();
                 let idx = rand % self.passive_view.read().unwrap().len();
                 self.passive_view.write().unwrap().remove(idx);
             }
@@ -388,7 +388,7 @@ impl HyParViewContext {
                 let shuffle_reply = ShuffleReply::new(msg.nodes, nodes);
                 shuffle_reply.serialize(&mut* socket, &self.config.local_addr);
             },
-            Err(e) => warn!("failed to send shuffle reply: {}", e),
+            Err(e) => warn!("failed to open connection to peer (to forward the shuffle): {}", e),
         }
     }
 
@@ -414,7 +414,7 @@ impl HyParViewContext {
                         continue;
                     }
                 } else {
-                    let rand: uint = rand::random();
+                    let rand: usize = rand::random();
                     let idx = rand % self.passive_view.write().unwrap().len();
                     self.passive_view.write().unwrap().remove(idx);
                 }
@@ -440,7 +440,7 @@ fn timed_shuffle(sender: Sender<HyParViewMessage>) {
         periodic.recv().unwrap();
         match sender.send(HyParViewMessage::NextShuffleRound) {
             Ok(_) => {},
-            Err(e) => info!("received an erro while trying to send message to begin next shuffle round: {}", e),
+            Err(e) => info!("received an erro while trying to send message to begin next shuffle round"),
         }
     };
 }
@@ -454,18 +454,17 @@ pub fn start_service(config: Arc<Config>) -> Sender<HyParViewMessage> {
     let hpv_clone = ctx.clone();
     let config_clone = config.clone();
     Thread::spawn(move ||  {
-        let logger = box LocalLogger::new(&*config_clone);
+        let logger = Box::new(LocalLogger::new(&*config_clone));
         set_logger(logger);
         hpv_clone.listen(receiver);
-    }).detach();
+    });
 
-    let hpv_clone = ctx.clone();
     sender.send(HyParViewMessage::JoinBegin);
 
     let sender_clone = sender.clone();
     Thread::spawn(move || {
         timed_shuffle(sender_clone);
-    }).detach();
+    });
 
     sender.clone()
 }

@@ -7,8 +7,8 @@ pub struct Config {
     pub contact_nodes: Vec<SocketAddr>,
     pub active_random_walk_length: u8,
     pub passive_random_walk_length: u8,
-    pub active_view_size: uint,
-    pub passive_view_size: uint,
+    pub active_view_size: usize,
+    pub passive_view_size: usize,
     pub shuffle_period_seconds: u8,
     pub shuffle_active_view_count: u8,
     pub shuffle_passive_view_count: u8,
@@ -46,7 +46,7 @@ impl Config {
         let shuffle_walk_length: u8 = line.as_slice().trim().parse().expect("expected an int");
 
         Config { local_addr: local_addr, contact_nodes: contact_nodes, active_random_walk_length: arwl, passive_random_walk_length: prwl,
-                 active_view_size: active_size as uint, passive_view_size: passive_size as uint, shuffle_period_seconds: shuffle_period, 
+                 active_view_size: active_size as usize, passive_view_size: passive_size as usize, shuffle_period_seconds: shuffle_period, 
                  shuffle_active_view_count: shuffle_active_cnt, shuffle_passive_view_count: shuffle_passive_count, shuffle_walk_length: shuffle_walk_length}
     }
 
