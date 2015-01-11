@@ -451,6 +451,7 @@ pub fn start_service(config: Arc<Config>) -> Sender<HyParViewMessage> {
 
     let config_clone = config.clone();
     Thread::spawn(move || {
+        set_logger(Box::new(LocalLogger::new()));
         HyParViewContext::new(config_clone).listen(receiver);
     });
 

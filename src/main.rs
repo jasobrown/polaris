@@ -23,6 +23,7 @@ mod logger;
 fn main() {
     let opts = Opts::read_opts();
     let config = Box::new(Config::load_config(opts.config_file.as_slice()));
+    set_logger(Box::new(LocalLogger::new()));
 
     let config_arc = Arc::new(*config);
     let config_cpy = config_arc.clone();

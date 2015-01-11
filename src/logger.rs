@@ -9,32 +9,31 @@ use std::os::tmpdir;
 use std::io::fs::{mkdir_recursive,PathExtensions};
 use std::sync::mpsc::{channel,Sender,Receiver};
 use std::thread::Thread;
+use std::io::{LineBufferedWriter,stdio,stderr};
 
 // based on http://joshitech.blogspot.com/2014/12/rust-customer-logger.html
 pub struct LocalLogger {
-    sender: Sender<String>,
+    handle: LineBufferedWriter<stdio::StdWriter>, 
 }
 impl LocalLogger {
-    pub fn new(sender: Sender<String>) -> LocalLogger {
-        LocalLogger { sender: sender }
+    pub fn new() -> LocalLogger {
+        LocalLogger { handle: stderr() }
     }
 }
 impl Logger for LocalLogger {
     fn log(&mut self, record: &LogRecord) {
-        let entry = format!(
+        match writeln!(&mut self.handle,
                        "{} {} {}:{} (line {}) {}",
                        time::strftime("%Y-%m-%d %H:%M:%S.%f %Z", &time::now()).unwrap(),
                        record.level,
                        record.module_path,
                        record.file,
                        record.line,
-                       record.args);
-
-        match self.sender.send(entry) {
-            Ok(()) => {}
-            Err(e) => println!("failed to log"),
+                       record.args) {
+            Err(e) => {}
+            Ok(()) => {}  
         }
-    }  
+    }
 }
 
 fn log_listen(socket: &SocketAddr) -> Sender<String> {
