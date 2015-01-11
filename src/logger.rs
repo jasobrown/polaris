@@ -22,9 +22,16 @@ impl LocalLogger {
 }
 impl Logger for LocalLogger {
     fn log(&mut self, record: &LogRecord) {
+        // TODO optimize getting the thread name by stashing it as a struct member upon construction
+        let thr = Thread::current();
+        let thread_name = match thr.name() {
+            Some(n) => n,
+            None => "unnamed thread".as_slice(),
+        };
         match writeln!(&mut self.handle,
-                       "{} {} {}:{} (line {}) {}",
+                       "{} [{}] {} {}:{} (line {}) {}",
                        time::strftime("%Y-%m-%d %H:%M:%S.%f %Z", &time::now()).unwrap(),
+                       thread_name,
                        record.level,
                        record.module_path,
                        record.file,

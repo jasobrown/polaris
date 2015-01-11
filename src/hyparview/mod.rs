@@ -8,7 +8,7 @@ use std::io::net::tcp::TcpStream;
 use std::rand;
 use std::sync::{Arc,RwLock};
 use std::time::Duration;
-use std::thread::Thread;
+use std::thread::{Builder,Thread};
 use std::vec::Vec;
 use std::sync::mpsc::{channel,Receiver,Sender};
 
@@ -357,7 +357,7 @@ impl HyParViewContext {
         debug!("in handle_shuffle");
         // first, determine if this node should handle the request or pass it on down
         if msg.ttl > 0 && self.active_view.read().unwrap().len() > 1 {
-            debug!("in handle_shuffle, going to forward the request");
+            debug!("in handle_shuffle, going to forward the request from {} on behalf of {}", sender, msg.originator);
             let active_view = self.active_view.read().unwrap();
             let mut filtered = active_view.iter()
                 .filter(|&x| x.ne(sender) && x.ne(&self.config.local_addr));
@@ -450,7 +450,7 @@ pub fn start_service(config: Arc<Config>) -> Sender<HyParViewMessage> {
     let (sender, receiver) = channel::<HyParViewMessage>();
 
     let config_clone = config.clone();
-    Thread::spawn(move || {
+    Builder::new().name("hpv-event".to_string()).spawn(move || {
         set_logger(Box::new(LocalLogger::new()));
         HyParViewContext::new(config_clone).listen(receiver);
     });
@@ -458,7 +458,7 @@ pub fn start_service(config: Arc<Config>) -> Sender<HyParViewMessage> {
     sender.send(HyParViewMessage::JoinBegin);
 
     let sender_clone = sender.clone();
-    Thread::spawn(move || {
+    Builder::new().name("hpv-timer".to_string()).spawn(move || {
         timed_shuffle(sender_clone);
     });
 
