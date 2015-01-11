@@ -14,3 +14,6 @@ git = "https://github.com/rust-lang/log.git"
 [dependencies.time]
 #path = "../rust/rust-time"
 git = "https://github.com/rust-lang/time.git"
+
+[dependencies.getopts]
+git = "https://github.com/rust-lang/getopts.git"

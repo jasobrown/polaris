@@ -447,16 +447,11 @@ fn timed_shuffle(sender: Sender<HyParViewMessage>) {
 
 pub fn start_service(config: Arc<Config>) -> Sender<HyParViewMessage> {
     info!("starting up hyparview");
-    let hpv = HyParViewContext::new(config.clone());
-    let ctx = Arc::new(hpv);
     let (sender, receiver) = channel::<HyParViewMessage>();
 
-    let hpv_clone = ctx.clone();
     let config_clone = config.clone();
-    Thread::spawn(move ||  {
-        let logger = Box::new(LocalLogger::new(&*config_clone));
-        set_logger(logger);
-        hpv_clone.listen(receiver);
+    Thread::spawn(move || {
+        HyParViewContext::new(config_clone).listen(receiver);
     });
 
     sender.send(HyParViewMessage::JoinBegin);

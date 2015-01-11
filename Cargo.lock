@@ -2,6 +2,7 @@
 name = "polaris"
 version = "0.0.1"
 dependencies = [
+ "getopts 0.1.4 (git+https://github.com/rust-lang/getopts.git)",
  "log 0.1.9 (git+https://github.com/rust-lang/log.git)",
  "time 0.1.12 (git+https://github.com/rust-lang/time.git)",
 ]
@@ -10,6 +11,11 @@ dependencies = [
 name = "gcc"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "getopts"
+version = "0.1.4"
+source = "git+https://github.com/rust-lang/getopts.git#c39d688c9fb9ed2aeb842c61e38823a9181678f6"
 
 [[package]]
 name = "log"

@@ -1,6 +1,6 @@
 use std::io::{BufferedReader,IoError};
-use std::io::fs::File;
 use std::io::net::ip::{SocketAddr};
+use std::io::{File, Open, Write,USER_RWX};
 
 pub struct Config {
     pub local_addr: SocketAddr,
@@ -47,7 +47,7 @@ impl Config {
 
         Config { local_addr: local_addr, contact_nodes: contact_nodes, active_random_walk_length: arwl, passive_random_walk_length: prwl,
                  active_view_size: active_size as usize, passive_view_size: passive_size as usize, shuffle_period_seconds: shuffle_period, 
-                 shuffle_active_view_count: shuffle_active_cnt, shuffle_passive_view_count: shuffle_passive_count, shuffle_walk_length: shuffle_walk_length}
+                 shuffle_active_view_count: shuffle_active_cnt, shuffle_passive_view_count: shuffle_passive_count, shuffle_walk_length: shuffle_walk_length, }
     }
 
     fn read_int_pair(reader: &mut BufferedReader<Result<File, IoError>>) -> (u8, u8) {
@@ -58,5 +58,4 @@ impl Config {
         (val0, val1)
     }
 }
-
 
