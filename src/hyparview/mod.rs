@@ -14,21 +14,67 @@ use std::sync::mpsc::{channel,Receiver,Sender};
 
 pub mod messages;
 
-pub struct HyParViewContext {
+pub trait Shipper {
+    fn ship(&self, msg: &Serializable, dest: &SocketAddr) -> bool;
+}
+
+pub struct SocketShipper {
+    local_addr: SocketAddr,
+}
+impl Shipper for SocketShipper {
+    fn ship(&self, msg: &Serializable, dest: &SocketAddr) -> bool {
+        let mut success = false;
+        match TcpStream::connect_timeout(*dest, Duration::seconds(4)) {
+            Ok(ref mut socket) => {
+                match msg.serialize(&mut* socket, &self.local_addr) {
+                    Ok(_) => success = true,
+                    Err(e) => warn!("failed to send message to peer {}: {}", dest, e),
+                }
+            },
+            Err(e) => warn!("failed to open connection to peer (to forward the shuffle): {}", e),
+        }
+        success
+    }
+}
+
+pub struct HyParViewContext<'a> {
     config: Arc<Config>,
 
     // NOTE: not sure I'm really doing the best thing here using RwLock, but it's allowing me to mutate the Vec, so I think I'm on the right path there.
     // however, I don't think i can retain a mutable reference to the open, outbound tcp connection (with the socket addr). thus, am punting on it for now..
     active_view: RwLock<Vec<SocketAddr>>,
     passive_view: RwLock<Vec<SocketAddr>>,
+    shipper: Box<Shipper + 'a>,
 }
-impl HyParViewContext {
-    fn new(config: Arc<Config>) -> HyParViewContext {
+impl<'a> HyParViewContext<'a> {
+    fn new(config: Arc<Config>) -> HyParViewContext<'a> {
         let c = config.clone();
+        let shipper = Box::new(SocketShipper { local_addr: c.local_addr });
         HyParViewContext { 
             config: config,
             active_view: RwLock::new(Vec::with_capacity(c.active_view_size)),
             passive_view: RwLock::new(Vec::with_capacity(c.passive_view_size)),
+            shipper: shipper,
+        }
+    }
+
+    /// central event dispatcher for the hyparview module
+    pub fn listen(&self, receiver: Receiver<HyParViewMessage>) {
+        loop {
+            // TODO: try_recv() does *not* block, and might be nice for a gentle shutdown of the listener
+            match receiver.recv().unwrap() {
+                HyParViewMessage::JoinBegin => self.join(),
+                HyParViewMessage::JoinMessage(_,addr) => self.handle_join(&addr),
+                HyParViewMessage::ForwardJoinMessage(msg,addr) => self.handle_forward_join(&msg, &addr),
+                HyParViewMessage::JoinAckMessage(_,addr) => self.handle_join_ack(&addr),
+                HyParViewMessage::DisconnectMessage(_,addr) => self.handle_disconnect(&addr),
+                HyParViewMessage::NeighborRequestMessage(msg,addr) => self.handle_neighbor_request(&msg, &addr),
+                HyParViewMessage::NeighborResponseMessage(msg,addr) => self.handle_neighbor_response(&msg, &addr),
+                HyParViewMessage::ShuffleMessage(msg,addr) => self.handle_shuffle(msg, &addr),
+                HyParViewMessage::ShuffleReplyMessage(msg,_) => self.handle_shuffle_reply(&msg),
+                HyParViewMessage::NextShuffleRound => self.handle_next_shuffle_round(),
+                HyParViewMessage::PeerDisconnect(addr) => self.handle_peer_failure(&addr),
+            }
         }
     }
 
@@ -48,8 +94,7 @@ impl HyParViewContext {
         let node = contact_nodes[idx];
         debug!("sending join request to {}", node);
         let msg = Join::new();
-        let mut socket = TcpStream::connect(node).ok().expect("failed to open connection to peer");
-        msg.serialize(&mut socket, &self.config.local_addr);
+        self.shipper.ship(&msg, &node);
     }
 
     fn handle_next_shuffle_round(&self) {
@@ -66,19 +111,17 @@ impl HyParViewContext {
         let target_addr = HyParViewContext::select_random(&*active_view);
         let nodes = self.build_shuffle_list(&*active_view, target_addr);
         let shuffle = Shuffle::new(self.config.local_addr, nodes, self.config.shuffle_walk_length);
-        let mut socket = TcpStream::connect(*target_addr).ok().expect("failed to open connection to peer");
-        shuffle.serialize(&mut socket, &self.config.local_addr);
+        self.shipper.ship(&shuffle, target_addr);
 
         // additionally, (TODO: probablistically) choose to send to a contact_node
         // make sure current node is not the only contact node
         if self.config.contact_nodes.len() > 1us || 
             (self.config.contact_nodes[0].ne(&self.config.local_addr) && self.config.contact_nodes[0].ne(target_addr)) {
-            let mut addr = &self.config.local_addr;
-            while addr.eq(&self.config.local_addr) {
-                addr = HyParViewContext::select_random(&self.config.contact_nodes); 
-            }
-            let mut socket = TcpStream::connect(*addr).ok().expect("failed to open connection to peer");
-            shuffle.serialize(&mut socket, &self.config.local_addr);
+                let mut addr = &self.config.local_addr;
+                while addr.eq(&self.config.local_addr) {
+                    addr = HyParViewContext::select_random(&self.config.contact_nodes); 
+                }
+                self.shipper.ship(&shuffle, addr);
         }
         debug!("end do_shuffle()");
     }
@@ -121,25 +164,6 @@ impl HyParViewContext {
         &addrs[idx]
     }
 
-    pub fn listen(&self, receiver: Receiver<HyParViewMessage>) {
-        loop {
-            // TODO: try_recv() does *not* block, and might be nice for a gentle shutdown of the listener
-            match receiver.recv().unwrap() {
-                HyParViewMessage::JoinBegin => self.join(),
-                HyParViewMessage::JoinMessage(_,addr) => self.handle_join(&addr),
-                HyParViewMessage::ForwardJoinMessage(msg,addr) => self.handle_forward_join(&msg, &addr),
-                HyParViewMessage::JoinAckMessage(_,addr) => self.handle_join_ack(&addr),
-                HyParViewMessage::DisconnectMessage(_,addr) => self.handle_disconnect(&addr),
-                HyParViewMessage::NeighborRequestMessage(msg,addr) => self.handle_neighbor_request(&msg, &addr),
-                HyParViewMessage::NeighborResponseMessage(msg,addr) => self.handle_neighbor_response(&msg, &addr),
-                HyParViewMessage::ShuffleMessage(msg,addr) => self.handle_shuffle(msg, &addr),
-                HyParViewMessage::ShuffleReplyMessage(msg,_) => self.handle_shuffle_reply(&msg),
-                HyParViewMessage::NextShuffleRound => self.handle_next_shuffle_round(),
-                HyParViewMessage::PeerDisconnect(addr) => self.handle_peer_failure(&addr),
-            }
-        }
-    }
-
     /// a contact_node (or really any node, for that matter) receives a JOIN request from a node that wants to join the cluster.
     /// the requesting could be a completely new node, or it could be a node that bounced or possibly it resent the JOIN request
     /// due to timeout (because it didn't receive a response).
@@ -153,8 +177,7 @@ impl HyParViewContext {
         let forward_join = ForwardJoin::new(sender, self.config.active_random_walk_length, self.config.passive_random_walk_length, self.config.active_random_walk_length);
 //        info!("sending forward join for {} to peers {}", sender, &*self.active_view.read().unwrap());
         for peer in self.active_view.read().unwrap().iter() { 
-            let mut socket = TcpStream::connect(*peer).ok().expect("failed to open connection to peer");
-            forward_join.serialize(&mut socket, &self.config.local_addr);
+            self.shipper.ship(&forward_join, peer);
         }
 
         self.add_to_active_view(sender);
@@ -179,13 +202,8 @@ impl HyParViewContext {
                 self.add_to_passive_view(&removed);
                 debug!("remove random node from active_list: {}", removed);
 
-                match TcpStream::connect(removed)  {
-                    Ok(ref mut conn) => {
-                        let discon = Disconnect::new();
-                        discon.serialize(conn, &self.config.local_addr);
-                    },
-                    Err(e) => warn!("could not connect to node that we want to disconnect from: {}, {}", removed, e),
-                }
+                let discon = Disconnect::new();
+                self.shipper.ship(&discon, &removed);
             }
         }
 
@@ -212,13 +230,8 @@ impl HyParViewContext {
     fn send_join_ack(&self, peer: &SocketAddr) {
         // send an 'ack' message back to the sender - currently in leiu of maintaining an open, mutable tcp connection (but I like this anyways :) )
         info!("sending join ack to {}", peer);
-        match TcpStream::connect(*peer)  { 
-            Ok(ref mut conn) => {
-                let ack = JoinAck::new();
-                ack.serialize(conn, &self.config.local_addr);
-            },
-            Err(e) => warn!("could not connect to node that wants to JOIN to send the join_ack: {}", e),
-        }
+        let ack = JoinAck::new();
+        self.shipper.ship(&ack, peer);
     }
 
     //TODO: there *must* be a better way to do this rather than reusing a java-ism :(
@@ -259,8 +272,7 @@ impl HyParViewContext {
             let idx = rand % active_view.len();
             let peer = active_view[idx];
             if !peer.eq(sender) {
-                let mut socket = TcpStream::connect(peer).ok().expect("failed to open connection to peer (to forward join)");
-                forward_join.serialize(&mut socket, &self.config.local_addr);
+                self.shipper.ship(&forward_join, &peer);
                 break;
             }
         }
@@ -319,31 +331,23 @@ impl HyParViewContext {
                 _ => Priority::Low,
             };
             let neighbor = NeighborRequest::new(priority);
-
-            match TcpStream::connect_timeout(self.passive_view.read().unwrap()[i], Duration::seconds(4)) {
-                Ok(ref mut socket) => {
-                    neighbor.serialize(&mut* socket, &self.config.local_addr);
-                    break;
-                },
-                Err(_) => {
-                    self.passive_view.write().unwrap().remove(i);
-                },
+            if !self.shipper.ship(&neighbor, &self.passive_view.read().unwrap()[i]) {
+                self.passive_view.write().unwrap().remove(i);
             }
             idx += 1;
         }
     }
 
     fn handle_neighbor_request(&self, msg: &NeighborRequest, sender: &SocketAddr) {
-        let mut socket = TcpStream::connect(*sender).ok().expect("failed to open connection to peer (to forward join)");
         if Priority::Low.eq(&msg.priority) && self.active_view.read().unwrap().len() == self.config.active_view_size {
             let resp = NeighborResponse::new(Result::Reject);
-            resp.serialize(&mut socket, &self.config.local_addr);
+            self.shipper.ship(&resp, sender);
             return;
         }
 
         self.add_to_active_view(sender);
         let resp = NeighborResponse::new(Result::Accept);
-        resp.serialize(&mut socket, &self.config.local_addr);
+        self.shipper.ship(&resp, sender);
     }
 
     fn handle_neighbor_response(&self, msg: &NeighborResponse, sender: &SocketAddr) {
@@ -368,14 +372,9 @@ impl HyParViewContext {
                 f.push(*i);
             }
 
+            let shuffle = Shuffle::new(msg.originator, msg.nodes, msg.ttl - 1);
             let addr = HyParViewContext::select_random(&f);
-            match TcpStream::connect(*addr) {
-                Ok(ref mut socket) => {
-                    let shuffle = Shuffle::new(msg.originator, msg.nodes, msg.ttl - 1);
-                    shuffle.serialize(&mut* socket, &self.config.local_addr);
-                },
-                Err(e) => warn!("failed to open connection to peer (to forward the shuffle): {}", e),
-            }
+            self.shipper.ship(&shuffle, addr);
             return;
         }
 
@@ -383,13 +382,8 @@ impl HyParViewContext {
         let empty_vec = Vec::new();
         self.apply_shuffle(&msg.nodes, &empty_vec);
 
-        match TcpStream::connect(msg.originator) {
-            Ok(ref mut socket) => {
-                let shuffle_reply = ShuffleReply::new(msg.nodes, nodes);
-                shuffle_reply.serialize(&mut* socket, &self.config.local_addr);
-            },
-            Err(e) => warn!("failed to open connection to peer (to forward the shuffle): {}", e),
-        }
+        let shuffle_reply = ShuffleReply::new(msg.nodes, nodes);
+        self.shipper.ship(&shuffle_reply, &msg.originator);
     }
 
     fn apply_shuffle(&self, nodes: &Vec<SocketAddr>, filter: &Vec<SocketAddr>) {

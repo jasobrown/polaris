@@ -43,7 +43,6 @@ pub enum HyParViewMessage {
 
 pub trait Serializable {
     fn serialize(&self, writer: &mut Writer, sender: &SocketAddr) -> IoResult<usize>;
-    fn deserialize(reader: &mut Reader) -> IoResult<Self>;
 }
 
 /// top-level function for serializing a HyParView message.
@@ -55,13 +54,13 @@ pub fn deserialize(reader: &mut TcpStream) -> IoResult<HyParViewMessage> {
 
     match header.msg_id {
         0 => Ok(HyParViewMessage::JoinMessage(Join::new(), header.sender)),
-        1 => Ok(HyParViewMessage::ForwardJoinMessage(Serializable::deserialize(reader).ok().expect("failed to deserailize the forward join"), header.sender)),
+        1 => Ok(HyParViewMessage::ForwardJoinMessage(ForwardJoin::deserialize(reader).ok().expect("failed to deserailize the forward join"), header.sender)),
         2 => Ok(HyParViewMessage::JoinAckMessage(JoinAck::new(), header.sender)),
         3 => Ok(HyParViewMessage::DisconnectMessage(Disconnect::new(), header.sender)),
-        4 => Ok(HyParViewMessage::NeighborRequestMessage(Serializable::deserialize(reader).ok().expect("failed to deserailize the neighbor request"), header.sender)),
-        5 => Ok(HyParViewMessage::NeighborResponseMessage(Serializable::deserialize(reader).ok().expect("failed to deserailize the neighbor response"), header.sender)),
-        6 => Ok(HyParViewMessage::ShuffleMessage(Serializable::deserialize(reader).ok().expect("failed to deserailize the shuffle"), header.sender)),
-        7 => Ok(HyParViewMessage::ShuffleReplyMessage(Serializable::deserialize(reader).ok().expect("failed to deserailize the shuffle reply"), header.sender)),
+        4 => Ok(HyParViewMessage::NeighborRequestMessage(NeighborRequest::deserialize(reader).ok().expect("failed to deserailize the neighbor request"), header.sender)),
+        5 => Ok(HyParViewMessage::NeighborResponseMessage(NeighborResponse::deserialize(reader).ok().expect("failed to deserailize the neighbor response"), header.sender)),
+        6 => Ok(HyParViewMessage::ShuffleMessage(Shuffle::deserialize(reader).ok().expect("failed to deserailize the shuffle"), header.sender)),
+        7 => Ok(HyParViewMessage::ShuffleReplyMessage(ShuffleReply::deserialize(reader).ok().expect("failed to deserailize the shuffle reply"), header.sender)),
         _ => Err(IoError{ kind: IoErrorKind::InvalidInput, desc: "unknown message id passed in".as_slice(), detail: None }),
     }
 }
@@ -139,14 +138,13 @@ impl Join {
         Join
     }
 
+    fn deserialize(reader: &mut Reader) -> IoResult<Join> {
+        Ok(Join)
+    }
 }
 impl Serializable for Join {
     fn serialize(&self, writer: &mut Writer, sender: &SocketAddr) -> IoResult<usize> {
         Header::new(sender, HPV_MSG_ID_JOIN).serailize(writer)
-    }
-
-    fn deserialize(reader: &mut Reader) -> IoResult<Join> {
-        Ok(Join)
     }
 }
 
@@ -160,6 +158,18 @@ pub struct ForwardJoin {
 impl ForwardJoin {
     pub fn new(addr: &SocketAddr, arwl: u8, prwl: u8, ttl: u8) -> ForwardJoin {
         ForwardJoin { originator: *addr, arwl: arwl, prwl: prwl, ttl: ttl }
+    }
+
+    fn deserialize(reader: &mut Reader) -> IoResult<ForwardJoin> {
+        match deserialize_socket_addr(reader) {
+            Ok(socket) => {
+                let arwl = reader.read_u8().ok().expect("could not read arwl from stream"); 
+                let prwl = reader.read_u8().ok().expect("could not read prwl from stream"); 
+                let ttl = reader.read_u8().ok().expect("could not read ttl from stream"); 
+                Ok(ForwardJoin::new(&socket, arwl, prwl, ttl))
+            },
+            Err(e) => Err(e),
+        }
     }
 }
 impl Serializable for ForwardJoin {
@@ -183,18 +193,6 @@ impl Serializable for ForwardJoin {
         writer.write_u8(self.ttl).ok();
         cnt += 1;
         Ok(cnt)
-    }
-
-    fn deserialize(reader: &mut Reader) -> IoResult<ForwardJoin> {
-        match deserialize_socket_addr(reader) {
-            Ok(socket) => {
-                let arwl = reader.read_u8().ok().expect("could not read arwl from stream"); 
-                let prwl = reader.read_u8().ok().expect("could not read prwl from stream"); 
-                let ttl = reader.read_u8().ok().expect("could not read ttl from stream"); 
-                Ok(ForwardJoin::new(&socket, arwl, prwl, ttl))
-            },
-            Err(e) => Err(e),
-        }
     }
 }
 
@@ -230,14 +228,13 @@ impl Disconnect {
         Disconnect
     }
 
+    fn deserialize(reader: &mut Reader) -> IoResult<Disconnect> {
+        Ok(Disconnect)
+    }
 }
 impl Serializable for Disconnect {
     fn serialize(&self, writer: &mut Writer, sender: &SocketAddr) -> IoResult<usize> { 
         Header::new(sender, HPV_MSG_ID_DISCONNECT).serailize(writer)
-    }
-
-    fn deserialize(reader: &mut Reader) -> IoResult<Disconnect> {
-        Ok(Disconnect)
     }
 }
 
@@ -248,14 +245,13 @@ impl JoinAck {
         JoinAck
     }
 
+    fn deserialize(reader: &mut Reader) -> IoResult<JoinAck> {
+        Ok(JoinAck)
+    }
 }
 impl Serializable for JoinAck {
     fn serialize(&self, writer: &mut Writer, sender: &SocketAddr) -> IoResult<usize> {
         Header::new(sender, HPV_MSG_ID_JOIN_ACK).serailize(writer)
-    }
-
-    fn deserialize(reader: &mut Reader) -> IoResult<JoinAck> {
-        Ok(JoinAck)
     }
 }
 
@@ -267,8 +263,7 @@ impl NeighborRequest {
     pub fn new(priority: Priority) -> NeighborRequest {
         NeighborRequest { priority: priority}
     }
-}
-impl Serializable for NeighborRequest {
+
     fn deserialize(reader: &mut Reader) -> IoResult<NeighborRequest> {
         let p = match reader.read_u8().ok().expect("could not read priority from stream") {
             0 => Priority::Low,
@@ -280,6 +275,8 @@ impl Serializable for NeighborRequest {
         };
         Ok(NeighborRequest::new(p))
     }
+}
+impl Serializable for NeighborRequest {
 
     fn serialize(&self, writer: &mut Writer, sender: &SocketAddr) -> IoResult<usize> {
         let mut cnt = 0;
@@ -307,6 +304,16 @@ impl NeighborResponse {
     pub fn new(result: Result) -> NeighborResponse {
         NeighborResponse { result: result }
     }
+
+    fn deserialize(reader: &mut Reader) -> IoResult<NeighborResponse> {
+        let r = match reader.read_u8().ok().expect("could not read result from stream") {
+            0 => Result::Accept,
+            1 => Result::Reject,
+            // if we can't undertand the result code, just default to reject
+            _ => Result::Reject 
+        };
+        Ok(NeighborResponse::new(r))
+    }
 }
 impl Serializable for NeighborResponse {
     fn serialize(&self, writer: &mut Writer, sender: &SocketAddr) -> IoResult<usize> {
@@ -325,16 +332,6 @@ impl Serializable for NeighborResponse {
         cnt += 1;
         Ok(cnt)
     }
-
-    fn deserialize(reader: &mut Reader) -> IoResult<NeighborResponse> {
-        let r = match reader.read_u8().ok().expect("could not read result from stream") {
-            0 => Result::Accept,
-            1 => Result::Reject,
-            // if we can't undertand the result code, just default to reject
-            _ => Result::Reject 
-        };
-        Ok(NeighborResponse::new(r))
-    }
 }
 
 #[derive(Show)]
@@ -346,6 +343,13 @@ pub struct Shuffle {
 impl Shuffle {
     pub fn new(originator: SocketAddr, nodes: Vec<SocketAddr>, ttl: u8) -> Shuffle {
         Shuffle { originator: originator, nodes: nodes, ttl: ttl }
+    }
+
+    fn deserialize(reader: &mut Reader) -> IoResult<Shuffle> {
+        let originator = deserialize_socket_addr(reader).ok().expect("could not read socket addr from stream");
+        let nodes = deserialize_socket_addrs(reader);
+        let ttl = reader.read_u8().ok().expect("could not read ttl from stream"); 
+        Ok(Shuffle::new(originator, nodes, ttl))
     }
 }
 impl Serializable for Shuffle {
@@ -370,13 +374,6 @@ impl Serializable for Shuffle {
         writer.write_u8(self.ttl).ok();
         cnt += 1;
         Ok(cnt)
-    }
-
-    fn deserialize(reader: &mut Reader) -> IoResult<Shuffle> {
-        let originator = deserialize_socket_addr(reader).ok().expect("could not read socket addr from stream");
-        let nodes = deserialize_socket_addrs(reader);
-        let ttl = reader.read_u8().ok().expect("could not read ttl from stream"); 
-        Ok(Shuffle::new(originator, nodes, ttl))
     }
 }
 
@@ -418,7 +415,11 @@ impl ShuffleReply {
         ShuffleReply { sent_nodes: sent_nodes, nodes: nodes }
     }
 
-
+    fn deserialize(reader: &mut Reader) -> IoResult<ShuffleReply> {
+        let sent_nodes = deserialize_socket_addrs(reader);
+        let nodes = deserialize_socket_addrs(reader);
+        Ok(ShuffleReply::new(sent_nodes, nodes))
+    }
 }
 impl Serializable for ShuffleReply {
     fn serialize(&self, writer: &mut Writer, sender: &SocketAddr) -> IoResult<usize> {
@@ -439,11 +440,5 @@ impl Serializable for ShuffleReply {
             Err(e) => return Err(e),
         }
         Ok(cnt)
-    }
-
-    fn deserialize(reader: &mut Reader) -> IoResult<ShuffleReply> {
-        let sent_nodes = deserialize_socket_addrs(reader);
-        let nodes = deserialize_socket_addrs(reader);
-        Ok(ShuffleReply::new(sent_nodes, nodes))
     }
 }
