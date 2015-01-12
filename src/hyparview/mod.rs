@@ -8,7 +8,7 @@ use std::io::net::tcp::TcpStream;
 use std::rand;
 use std::sync::{Arc,RwLock};
 use std::time::Duration;
-use std::thread::{Builder,Thread};
+use std::thread::{Builder};
 use std::vec::Vec;
 use std::sync::mpsc::{channel,Receiver,Sender};
 

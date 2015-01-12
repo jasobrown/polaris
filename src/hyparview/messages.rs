@@ -137,10 +137,6 @@ impl Join {
     pub fn new() -> Join {
         Join
     }
-
-    fn deserialize(reader: &mut Reader) -> IoResult<Join> {
-        Ok(Join)
-    }
 }
 impl Serializable for Join {
     fn serialize(&self, writer: &mut Writer, sender: &SocketAddr) -> IoResult<usize> {
@@ -227,10 +223,6 @@ impl Disconnect {
     pub fn new() -> Disconnect {
         Disconnect
     }
-
-    fn deserialize(reader: &mut Reader) -> IoResult<Disconnect> {
-        Ok(Disconnect)
-    }
 }
 impl Serializable for Disconnect {
     fn serialize(&self, writer: &mut Writer, sender: &SocketAddr) -> IoResult<usize> { 
@@ -243,10 +235,6 @@ pub struct JoinAck;
 impl JoinAck {
     pub fn new() -> JoinAck {
         JoinAck
-    }
-
-    fn deserialize(reader: &mut Reader) -> IoResult<JoinAck> {
-        Ok(JoinAck)
     }
 }
 impl Serializable for JoinAck {
