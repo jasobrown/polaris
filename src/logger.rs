@@ -7,7 +7,7 @@ use std::io::net::ip::{SocketAddr};
 use std::io::{File, Open, Write,USER_RWX};
 use std::os::tmpdir;
 use std::io::fs::{mkdir_recursive,PathExtensions};
-use std::sync::mpsc::{channel,Sender,Receiver};
+use std::sync::mpsc::{channel,Sender};
 use std::thread::Thread;
 use std::io::{LineBufferedWriter,stdio,stderr};
 
@@ -37,8 +37,8 @@ impl Logger for LocalLogger {
                        record.file,
                        record.line,
                        record.args) {
-            Err(e) => {}
-            Ok(()) => {}  
+            Err(_) => {}
+            Ok(_) => {}  
         }
     }
 }

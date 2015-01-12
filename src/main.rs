@@ -21,9 +21,10 @@ mod hyparview;
 mod logger;
 
 fn main() {
+    set_logger(Box::new(LocalLogger::new()));
+    debug!("starting polaris");
     let opts = Opts::read_opts();
     let config = Box::new(Config::load_config(opts.config_file.as_slice()));
-    set_logger(Box::new(LocalLogger::new()));
 
     let config_arc = Arc::new(*config);
     let config_cpy = config_arc.clone();
@@ -52,10 +53,10 @@ fn handle_client(mut stream: TcpStream, sender: Sender<HyParViewMessage>) {
         Ok(msg) => {
             match sender.send(msg) {
                 Ok(_) => {},
-                Err(e) => error!("failed to send task"),
+                Err(_) => error!("failed to send task"),
             };
         },
-        Err(e) => error!("failed to parse incoming message"),
+        Err(e) => error!("failed to parse incoming message: {}", e),
     }
     // TODO send a 'socket closed' event to the hyparview controller
 }
