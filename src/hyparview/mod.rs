@@ -78,7 +78,7 @@ impl<'a> HyParViewContext<'a> {
         }
     }
 
-    /// call a random contact_node and send a 'JOIN' message
+    /// call an arbitrary contact_node and send a 'JOIN' message
     pub fn join(&self) {
         debug!("in join()");
        // TODO: add callback to ensure we got a response (Neighbor) msg from some peer
@@ -92,37 +92,6 @@ impl<'a> HyParViewContext<'a> {
         let node = HyParViewContext::select_random(contact_nodes);
         debug!("sending join request to {}", node);
         self.shipper.ship(&Join::new(), node);
-    }
-
-    fn handle_forward_join(&self, msg: &ForwardJoin, sender: &SocketAddr) {
-        debug!("in handle_forward_join for {} from {}", msg.originator, sender);
-        if (self.active_view.read().unwrap().len() <= 1 || msg.ttl <= 0) && msg.originator.ne(&self.config.local_addr) {
-            self.add_to_active_view(&msg.originator);
-            self.send_join_ack(&msg.originator);
-            return;
-        } 
-
-        if msg.ttl == msg.prwl {
-            self.add_to_passive_view(&msg.originator);
-        }
-
-        let ttl = msg.ttl - 1;
-        let forward_join = ForwardJoin::new(&msg.originator, msg.arwl, msg.prwl, ttl);
-        let active_view = self.active_view.read().unwrap();
-        loop {
-            let rand: usize = rand::random();
-            let idx = rand % active_view.len();
-            let peer = active_view[idx];
-            if !peer.eq(sender) {
-                self.shipper.ship(&forward_join, &peer);
-                break;
-            }
-        }
-    }
-
-    fn handle_join_ack(&self, sender: &SocketAddr) {
-        debug!("received join_ack from {}", sender);
-        self.add_to_active_view(sender);
     }
 
     /// a contact_node (or really any node, for that matter) receives a JOIN request from a node that wants to join the cluster.
@@ -142,8 +111,38 @@ impl<'a> HyParViewContext<'a> {
         }
     }
 
-    /// Pass in the read lock for the active_view as all callers have probably already aquired the read lock anyways, so eliminate the need for 
-    /// obtaining another.
+    fn handle_forward_join(&self, msg: &ForwardJoin, sender: &SocketAddr) {
+        debug!("in handle_forward_join for {} from {}", msg.originator, sender);
+        // possibly take the request, unless the current node is the one that originated it (damn data races in distributed systems!)
+        if (self.active_view.read().unwrap().len() <= 1 || msg.ttl <= 0) && msg.originator.ne(&self.config.local_addr) {
+            info!("adding joining node to active_view: {}", &msg.originator);
+            self.add_to_active_view(&msg.originator);
+            self.shipper.ship(&JoinAck::new(), &msg.originator);
+            return;
+        } 
+
+        let mut ttl = msg.ttl - 1;
+        if msg.ttl == msg.prwl {
+            if msg.originator.ne(&self.config.local_addr) {
+                self.add_to_passive_view(&msg.originator);
+            } else { 
+                // bump the ttl so that when we forward the message, the originator can attempt to be added into the passive view on another node
+                ttl += 1;
+            }
+        }
+
+        let forward_join = ForwardJoin::new(&msg.originator, msg.arwl, msg.prwl, ttl);
+        loop {
+            // TODO: create filtered iterator here!
+            let active_view = self.active_view.read().unwrap();
+            let peer = HyParViewContext::select_random(&*active_view);
+            if peer.ne(sender) && peer.ne(&msg.originator) {
+                self.shipper.ship(&forward_join, peer);
+                break;
+            }
+        }
+    }
+
     fn add_to_active_view(&self, peer: &SocketAddr) {
         if self.config.local_addr.eq(peer) {
             warn!("attempting to add a node to it's own active list. ignoring");
@@ -159,9 +158,7 @@ impl<'a> HyParViewContext<'a> {
                 let removed = self.active_view.write().unwrap().remove(0);
                 self.add_to_passive_view(&removed);
                 debug!("remove random node from active_list: {}", removed);
-
-                let discon = Disconnect::new();
-                self.shipper.ship(&discon, &removed);
+                self.shipper.ship(&Disconnect::new(), &removed);
             }
         }
 
@@ -185,11 +182,9 @@ impl<'a> HyParViewContext<'a> {
         }
     }
 
-    /// send an 'ack' message back to the sender - currently in leiu of maintaining an open, mutable tcp connection (but I like this anyways :) )
-    fn send_join_ack(&self, peer: &SocketAddr) {
-        info!("sending join ack to {}", peer);
-        let ack = JoinAck::new();
-        self.shipper.ship(&ack, peer);
+    fn handle_join_ack(&self, sender: &SocketAddr) {
+        debug!("received join_ack from {}", sender);
+        self.add_to_active_view(sender);
     }
 
     fn handle_disconnect(&self, sender: &SocketAddr) {
@@ -199,19 +194,16 @@ impl<'a> HyParViewContext<'a> {
             debug!("received disconnect from {}", sender);
             self.active_view.write().unwrap().remove(contains.unwrap());
         }
+        self.send_neighbor_request(None);
 
         // add to the passive list, if not in it (either due to data race or programming bug)
+        self.passive_view.write().unwrap().push(*sender);
         let contains = HyParViewContext::index_of(&*self.passive_view.read().unwrap(), sender);
         if contains.is_none() {
-            while self.passive_view.read().unwrap().len() >= self.config.passive_view_size - 1 {
-                let rand: usize = rand::random();
-                let idx = rand % self.passive_view.read().unwrap().len();
-                self.passive_view.write().unwrap().remove(idx);
+            while self.passive_view.read().unwrap().len() >= self.config.passive_view_size {
+                self.passive_view.write().unwrap().remove(0);
             }
-            self.passive_view.write().unwrap().push(*sender);
         }
-
-        self.send_neighbor_request(None);
     }
 
     fn send_neighbor_request(&self, last_addr: Option<&SocketAddr>) {
