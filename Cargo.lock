@@ -20,7 +20,7 @@ source = "git+https://github.com/rust-lang/getopts.git#c39d688c9fb9ed2aeb842c61e
 [[package]]
 name = "log"
 version = "0.1.9"
-source = "git+https://github.com/rust-lang/log.git#8f2f8311b8c7bc0059d48bf36e2463227f09d132"
+source = "git+https://github.com/rust-lang/log.git#7d9c9389ca8be2403bdbb4e730bd21257b5b1a9a"
 dependencies = [
  "regex 0.1.10 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -33,7 +33,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "time"
 version = "0.1.12"
-source = "git+https://github.com/rust-lang/time.git#7f105d4dd2bde23d4b8516dc02566cfc46b60b22"
+source = "git+https://github.com/rust-lang/time.git#8931182e358ce46e1c7ccc93d31c47c88738f28f"
 dependencies = [
  "gcc 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
 ]

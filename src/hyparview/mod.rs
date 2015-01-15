@@ -106,8 +106,15 @@ impl<'a> HyParViewContext<'a> {
 
         let forward_join = ForwardJoin::new(sender, self.config.active_random_walk_length, self.config.passive_random_walk_length, self.config.active_random_walk_length);
 //        info!("sending initial forward join for {} to peers {}", sender, &*self.active_view.read().unwrap());
-        for peer in self.active_view.read().unwrap().iter() { 
-            self.shipper.ship(&forward_join, peer);
+        if self.active_view.read().unwrap().len() == 0 {
+            info!("adding joining node to this node's active_view: {}", &sender);
+            self.add_to_active_view(sender);
+            info!("about to ship join ack to: {}", &sender);
+            self.shipper.ship(&JoinAck::new(), sender);
+        } else {
+            for peer in self.active_view.read().unwrap().iter() { 
+                self.shipper.ship(&forward_join, peer);
+            }
         }
     }
 
@@ -131,16 +138,11 @@ impl<'a> HyParViewContext<'a> {
             }
         }
 
+        let active_view = self.active_view.read().unwrap();
+        let filtered: Vec<&SocketAddr> = active_view.iter().filter(|&x| x.ne(sender) && x.ne(&msg.originator)).collect();
+        let peer = HyParViewContext::select_random(&filtered);
         let forward_join = ForwardJoin::new(&msg.originator, msg.arwl, msg.prwl, ttl);
-        loop {
-            // TODO: create filtered iterator here!
-            let active_view = self.active_view.read().unwrap();
-            let peer = HyParViewContext::select_random(&*active_view);
-            if peer.ne(sender) && peer.ne(&msg.originator) {
-                self.shipper.ship(&forward_join, peer);
-                break;
-            }
-        }
+        self.shipper.ship(&forward_join, *peer);
     }
 
     fn add_to_active_view(&self, peer: &SocketAddr) {
@@ -154,14 +156,15 @@ impl<'a> HyParViewContext<'a> {
             debug!("adding peer to active view: {}", peer);
             self.active_view.write().unwrap().push(*peer);
 
-            while self.active_view.read().unwrap().len() > self.config.active_view_size {
-                let removed = self.active_view.write().unwrap().remove(0);
-                self.add_to_passive_view(&removed);
-                debug!("remove random node from active_list: {}", removed);
-                self.shipper.ship(&Disconnect::new(), &removed);
-            }
+            // while self.active_view.read().unwrap().len() > self.config.active_view_size {
+            //     let removed = self.active_view.write().unwrap().remove(0);
+            //     self.add_to_passive_view(&removed);
+            //     debug!("remove random node from active_list: {}", removed);
+            //     self.shipper.ship(&Disconnect::new(), &removed);
+            // }
         }
 
+        debug!("#$%^&*( - 1");
         // check if the node is in the passive view, and remove it
         // also, we should never get into the situation where a node is in both the active and passive lists
         // but having this as a separate check helps prevent against it (argh, fucking data races)
@@ -169,6 +172,7 @@ impl<'a> HyParViewContext<'a> {
         if contains.is_some() {
             self.passive_view.write().unwrap().remove(contains.unwrap());
         }
+        debug!("#$%^&*( - END");
     }
 
     fn add_to_passive_view(&self, peer: &SocketAddr) {
@@ -194,7 +198,6 @@ impl<'a> HyParViewContext<'a> {
             debug!("received disconnect from {}", sender);
             self.active_view.write().unwrap().remove(contains.unwrap());
         }
-        self.send_neighbor_request(None);
 
         // add to the passive list, if not in it (either due to data race or programming bug)
         self.passive_view.write().unwrap().push(*sender);
@@ -204,11 +207,14 @@ impl<'a> HyParViewContext<'a> {
                 self.passive_view.write().unwrap().remove(0);
             }
         }
+
+        self.send_neighbor_request(None);
     }
 
+    // this is a bit optimistic in that after we successfully send the NIEGHBORBOR msg, we expect to get some response (async, of course).
+    // we should keep around some timeout reference so we can try another peer (and possibly kick out the one that timed out), but that's for the future.
     fn send_neighbor_request(&self, last_addr: Option<&SocketAddr>) {
-        // this is a bit optimistic in that after we successfully send the NIEGHBORBOR msg, we expect to get some response (async, of course).
-        // we should keep around some timeout reference so we can try another peer (and possibly kick out the one that timed out), but that's for the future.
+        // use of this index is a bit ... optimistic/interesting. not sure i like it, but it's a loose way to asynchrounously iterate through the passive_view
         let mut idx = match last_addr {
             None => 0,
             Some(addr) => match HyParViewContext::index_of(&*self.passive_view.read().unwrap(), addr) {
@@ -217,22 +223,29 @@ impl<'a> HyParViewContext<'a> {
             }
         };
 
-        // bail out if we've already cycled through all the possible peers -- unless the active view is now empty
+        // bail out if we've already cycled through the passive_view, unless the active view is now empty
         if idx >= self.passive_view.read().unwrap().len() {
             if self.active_view.read().unwrap().len() == 0 {
                 idx = 0
             } else {
                 return;
             }
-        } 
+        }
 
+        let priority = match self.active_view.read().unwrap().len() {
+            0 => Priority::High,
+            _ => Priority::Low,
+        };
+
+        // note: this is suboptimal as SimpleSender will block for each send (thus blocking the entire
+        // hyparview event processing thread).
+        // TODO: (maybe) add callback handler in case peer never responds (so we can all another). however, if that does trigger,
+        // we should check if we've got a full active_view, and not bother with another NEIGHBOR request, in that case.
         for i in range(idx, self.passive_view.read().unwrap().len()) {
-            let priority = match self.active_view.read().unwrap().len() {
-                0 => Priority::High,
-                _ => Priority::Low,
-            };
             let neighbor = NeighborRequest::new(priority);
-            if !self.shipper.ship(&neighbor, &self.passive_view.read().unwrap()[i]) {
+            if self.shipper.ship(&neighbor, &self.passive_view.read().unwrap()[i]) {
+                return;
+            } else {
                 self.passive_view.write().unwrap().remove(i);
             }
             idx += 1;
@@ -254,7 +267,12 @@ impl<'a> HyParViewContext<'a> {
     fn handle_neighbor_response(&self, msg: &NeighborResponse, sender: &SocketAddr) {
         match msg.result {
             Result::Accept => self.add_to_active_view(sender),
-            Result::Reject => self.send_neighbor_request(Some(sender)),
+            Result::Reject => {
+                // check if we've gotten requests (neighbor or shuffle) from other nodes and now the active_view is full
+                if self.active_view.read().unwrap().len() < self.config.active_view_size {
+                    self.send_neighbor_request(Some(sender));
+                }
+            },
         };
     }
 
@@ -270,57 +288,80 @@ impl<'a> HyParViewContext<'a> {
         debug!("in do_shuffle()");
         let active_view = self.active_view.read().unwrap();
         let target_addr = HyParViewContext::select_random(&*active_view);
-        let nodes = self.build_shuffle_list(&*active_view, target_addr);
+
+        let active_filtered: Vec<&SocketAddr> = active_view.iter().filter(|&x| x.ne(target_addr) && x.ne(&self.config.local_addr)).collect();
+        let passive_view = self.passive_view.read().unwrap();
+        let passive_filtered: Vec<&SocketAddr> = passive_view.iter().filter(|&x| x.ne(target_addr) && x.ne(&self.config.local_addr)).collect();
+
+        let nodes = self.build_shuffle_list(&active_filtered, &passive_filtered);
         let shuffle = Shuffle::new(self.config.local_addr, nodes, self.config.shuffle_walk_length);
         self.shipper.ship(&shuffle, target_addr);
 
-        // additionally, (TODO: probablistically) choose to send to a contact_node
-        // make sure current node is not the only contact node
-        if self.config.contact_nodes.len() > 1us || 
-            (self.config.contact_nodes[0].ne(&self.config.local_addr) && self.config.contact_nodes[0].ne(target_addr)) {
-                let mut addr = &self.config.local_addr;
-                while addr.eq(&self.config.local_addr) {
-                    addr = HyParViewContext::select_random(&self.config.contact_nodes); 
-                }
-                self.shipper.ship(&shuffle, addr);
+        // additionally, possibly send shuffle message to a contact_node
+        let rand: usize = rand::random();
+        if rand % 10 == 0  {
+            let filtered: Vec<&SocketAddr> = self.config.contact_nodes.iter().filter(|&x| x.ne(target_addr) && x.ne(&self.config.local_addr)).collect();
+            if filtered.len() > 0 {
+                let addr = HyParViewContext::select_random(&filtered);
+                self.shipper.ship(&shuffle, *addr);
+            }
         }
         debug!("end do_shuffle()");
     }
 
-    fn build_shuffle_list(&self, active_view: &Vec<SocketAddr>, target_addr: &SocketAddr) -> Vec<SocketAddr> {
+    fn build_shuffle_list(&self, active_view: &Vec<&SocketAddr>, passive_view: &Vec<&SocketAddr>) -> Vec<SocketAddr> {
         let active_cnt = self.config.shuffle_active_view_count as usize;
         let passive_cnt = self.config.shuffle_passive_view_count as usize;
-        let mut nodes = Vec::with_capacity(1us + active_cnt + passive_cnt);
+        let mut nodes: Vec<SocketAddr> = Vec::with_capacity(1us + active_cnt + passive_cnt);
         nodes.push(self.config.local_addr);
         
-        HyParViewContext::select_multiple_random(&*active_view, &mut nodes, target_addr, active_cnt);
-        let passive_view = self.passive_view.read().unwrap();
-        HyParViewContext::select_multiple_random(&*passive_view, &mut nodes, target_addr, passive_cnt);
+        HyParViewContext::select_multiple_random(&*active_view, &mut nodes, active_cnt);
+        // TODO: filter the passive_view with the nodes vector
+        HyParViewContext::select_multiple_random(&*passive_view, &mut nodes, passive_cnt);
         nodes
     }
 
     fn handle_shuffle(&self, msg: Shuffle, sender: &SocketAddr) {
         debug!("in handle_shuffle");
-        // first, determine if this node should handle the request or pass it on down
+        let active_view = self.active_view.read().unwrap();
+        let passive_view = self.passive_view.read().unwrap();
+
+        let mut to_avoid: Vec<&SocketAddr> = Vec::with_capacity(3);
+        to_avoid.push(sender);
+        to_avoid.push(&self.config.local_addr);
+        to_avoid.push(&msg.originator);
+        let active_filtered: Vec<&SocketAddr> = active_view.iter().filter(|&x| !HyParViewContext::contains(&to_avoid, &x)).collect();
+
+        // determine if this node should handle the request or pass it on down
         if msg.ttl > 0 && self.active_view.read().unwrap().len() > 1 {
             debug!("in handle_shuffle, going to forward the request from {} on behalf of {}", sender, msg.originator);
-            let active_view = self.active_view.read().unwrap();
-            let mut filtered = active_view.iter()
-                .filter(|&x| x.ne(sender) && x.ne(&self.config.local_addr));
-            
-            // there's a better way to do this, but I couldn't figure oout how to do it :(
-            let mut f = Vec::new();
-            for i in filtered {
-                f.push(*i);
-            }
+
+            // if filtered is empty, try sending to a passive_view node (this is a diversion from the paper) as we still want to forward, 
+            let addr: &SocketAddr = match active_filtered.len() {
+                0 => {
+                    let passive_filtered: Vec<&SocketAddr> = passive_view.iter().filter(|&x| !HyParViewContext::contains(&to_avoid, &x)).collect();
+                    match passive_filtered.len() {
+                        0 => {
+                            let contacts_filtered: Vec<&SocketAddr> = self.config.contact_nodes.iter().filter(|&x| !HyParViewContext::contains(&to_avoid, &x)).collect();
+                            match contacts_filtered.len() {
+                                0 => sender, // completely lacking anything else, just ship it back to the node that sent it here :(
+                                _ => *HyParViewContext::select_random(&contacts_filtered),
+                            }
+                        },
+                        _ => *HyParViewContext::select_random(&passive_filtered),
+                    }
+                },
+                _ => *HyParViewContext::select_random(&active_filtered),
+            };
 
             let shuffle = Shuffle::new(msg.originator, msg.nodes, msg.ttl - 1);
-            let addr = HyParViewContext::select_random(&f);
             self.shipper.ship(&shuffle, addr);
             return;
         }
 
-        let nodes = self.build_shuffle_list(&*self.active_view.read().unwrap(), &msg.originator);
+        let passive_filtered: Vec<&SocketAddr> = passive_view.iter().filter(|&x| !HyParViewContext::contains(&to_avoid, &x)).collect();
+        
+        let nodes = self.build_shuffle_list(&active_filtered, &passive_filtered);
         let empty_vec = Vec::new();
         self.apply_shuffle(&msg.nodes, &empty_vec);
 
@@ -338,7 +379,8 @@ impl<'a> HyParViewContext<'a> {
                 continue;
             }
 
-            // if passive_view at limit, remove one of the nodes as ref'd in the filter array (or a random node is filter is exhausted)
+            // if passive_view is at limit, remove one of the nodes that we sent over to the peer, as ref'd in the filter array; 
+            // remove or a random node is filter is exhausted.
             while self.passive_view.read().unwrap().len() >= self.config.passive_view_size - 1 {
                 if filter_len > 0 && filter_idx < filter_len {
                     let cur = filter[filter_idx];
@@ -350,9 +392,7 @@ impl<'a> HyParViewContext<'a> {
                         continue;
                     }
                 } else {
-                    let rand: usize = rand::random();
-                    let idx = rand % self.passive_view.write().unwrap().len();
-                    self.passive_view.write().unwrap().remove(idx);
+                    self.passive_view.write().unwrap().remove(0);
                 }
             }
             self.passive_view.write().unwrap().push(*node);
@@ -365,14 +405,21 @@ impl<'a> HyParViewContext<'a> {
     }
         
     fn handle_peer_failure(&self, addr: &SocketAddr){
-        
+        // remove from active list, if currently in it
+        let contains = HyParViewContext::index_of(&*self.active_view.read().unwrap(), addr);
+        if contains.is_some() {
+            debug!("detected failed peer {}", addr);
+            self.active_view.write().unwrap().remove(contains.unwrap());
+        }
+
+        self.send_neighbor_request(None);
     }
 
-    fn select_multiple_random(src: &Vec<SocketAddr>, dest: &mut Vec<SocketAddr>, target_addr: &SocketAddr, cnt: usize) {
+    fn select_multiple_random(src: &Vec<&SocketAddr>, dest: &mut Vec<SocketAddr>, cnt: usize) {
         if src.len() <= cnt {
             for addr in src.iter() {
-                if !HyParViewContext::contains(dest, addr) && !target_addr.eq(addr) {
-                    dest.push(*addr);
+                if !HyParViewContext::contains(dest, *addr) {
+                    dest.push(**addr);
                 }
             }
             return;
@@ -381,26 +428,26 @@ impl<'a> HyParViewContext<'a> {
         let mut c = 0;
         while c < cnt {
             let addr = HyParViewContext::select_random(src);
-            if !HyParViewContext::contains(dest, addr) && !target_addr.eq(addr) {
-                dest.push(*addr);
+            if !HyParViewContext::contains(dest, *addr) {
+                dest.push(**addr);
                 c += 1;
             }
         }
     }
 
-    fn select_random(addrs: &Vec<SocketAddr>) -> &SocketAddr {
+    fn select_random<T>(v: &Vec<T>) -> &T {
         let rand: usize = rand::random();
-        let idx = rand % addrs.len();
-        &addrs[idx]
+        let idx = rand % v.len();
+        &v[idx]
     }
 
     //TODO: there *must* be a better way to do this rather than reusing a java-ism :(
     // also, could sort the nodes and do a binary search, but looks like the built-in vec.search() requires 2 * n space and n log n time - yuck!
-    fn index_of(nodes: &Vec<SocketAddr>, target: &SocketAddr) -> Option<usize> {
+    fn index_of<T: PartialEq>(v: &Vec<T>, target: &T) -> Option<usize> {
         let mut idx = -1;
-        for sock in nodes.iter() {
+        for n in v.iter() {
             idx += 1;
-            if sock.eq(target) {
+            if n.eq(target) {
                 return Some(idx);
             }
         }
@@ -409,7 +456,7 @@ impl<'a> HyParViewContext<'a> {
 
 
     /// Test if a collection contains a given element
-    fn contains(nodes: &Vec<SocketAddr>, target: &SocketAddr) -> bool {
+    fn contains<T: PartialEq>(nodes: &Vec<T>, target: &T) -> bool {
         HyParViewContext::index_of(nodes, target).is_some()
     }
 }
