@@ -1,0 +1,16 @@
+- make polaris a daemon app (run in background) -- just do via cli
+- bind to listen socket before starting hpv service --- DONE
+
+- make sure we don't add a dupe entry to either active views -- not sure I saw this ...
+- make sure we don't add a dupe entry to either passive views -- DONE
+
+- make sure we don't add ourself to the active view --- DONE
+- make sure we don't add ourself to the passive view  --- DONE
+
+- make sure entry does not get into both active & passive views  --- DONE
+
+
+
+- make sure active_views are all symetric
+- ensure forward join is working correctly
+- make logger.file thread safe (file pointer getting jacked around)

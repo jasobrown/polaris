@@ -4,7 +4,7 @@ use std::io::net::tcp::{TcpStream};
 
 // TODO: need a much better system for identifying the messages (by type) than this simple hard-coded list, but wtf...
 static HPV_MSG_ID_JOIN: u8 = 0;
-static HPV_MSG_ID_FORWARD_JOIN: u8 = 1;
+pub static HPV_MSG_ID_FORWARD_JOIN: u8 = 1;
 static HPV_MSG_ID_JOIN_ACK: u8 = 2;
 static HPV_MSG_ID_DISCONNECT: u8 = 3;
 static HPV_MSG_ID_NEIGHBOR_REQUEST: u8 = 4;
@@ -46,7 +46,7 @@ pub trait Serializable {
 }
 
 /// top-level function for serializing a HyParView message.
-pub fn deserialize(reader: &mut TcpStream) -> IoResult<HyParViewMessage> {
+pub fn deserialize(reader: &mut Reader) -> IoResult<HyParViewMessage> {
     let header = match Header::deserialize(reader) {
         Ok(header) => header,
         Err(e) => return Err(e),
@@ -65,7 +65,7 @@ pub fn deserialize(reader: &mut TcpStream) -> IoResult<HyParViewMessage> {
     }
 }
 
-struct Header {
+pub struct Header {
     sender: SocketAddr,
     msg_id: u8,
 }
@@ -74,7 +74,7 @@ impl Header {
         Header { sender: *sender, msg_id: msg_id }
     }
 
-    fn serailize(&self, writer: &mut Writer) -> IoResult<usize> {
+    fn serialize(&self, writer: &mut Writer) -> IoResult<usize> {
         let mut cnt = 1;
         match serialize_socket_addr(&self.sender, writer) {
             Ok(c) => cnt += c,
@@ -96,12 +96,12 @@ impl Header {
             Ok(id) => id,
             Err(e) => return Err(e),
         };
-        Ok(Header { sender: sender, msg_id: msg_id })
+       Ok(Header { sender: sender, msg_id: msg_id })
     }
 }
 
 /// helper function to efficiently serialize a SocketAddr
-fn serialize_socket_addr(sa: &SocketAddr, writer: &mut Writer) -> IoResult<usize> {
+pub fn serialize_socket_addr(sa: &SocketAddr, writer: &mut Writer) -> IoResult<usize> {
     match sa.ip {
         Ipv4Addr(a, b, c, d) => {
             writer.write_u8(a).ok();
@@ -116,7 +116,7 @@ fn serialize_socket_addr(sa: &SocketAddr, writer: &mut Writer) -> IoResult<usize
 }
 
 /// helper function to efficiently deserialize a SocketAddr
-fn deserialize_socket_addr(reader: &mut Reader) -> IoResult<SocketAddr> {
+pub fn deserialize_socket_addr(reader: &mut Reader) -> IoResult<SocketAddr> {
     let mut buf = Vec::with_capacity(4);
     let mut i = 0;
     while i < 4 {
@@ -140,7 +140,7 @@ impl Join {
 }
 impl Serializable for Join {
     fn serialize(&self, writer: &mut Writer, sender: &SocketAddr) -> IoResult<usize> {
-        Header::new(sender, HPV_MSG_ID_JOIN).serailize(writer)
+        Header::new(sender, HPV_MSG_ID_JOIN).serialize(writer)
     }
 }
 
@@ -172,7 +172,7 @@ impl Serializable for ForwardJoin {
     fn serialize(&self, writer: &mut Writer, sender: &SocketAddr) -> IoResult<usize> {
         let mut cnt = 0;
         let header = Header::new(sender, HPV_MSG_ID_FORWARD_JOIN);
-        match header.serailize(writer) {
+        match header.serialize(writer) {
             Ok(c) => cnt += c,
             Err(e) => return Err(e),
         }
@@ -192,31 +192,6 @@ impl Serializable for ForwardJoin {
     }
 }
 
-#[test]
-fn test_join_serialization() {
-    use std::io::{MemReader,BufferedWriter};
-    use std::io::net::ip::{SocketAddr};
-
-    let arwl = 6u8;
-    let prwl = 3u8;
-    let ttl = 4u8;
-
-    let sock_addr: SocketAddr = ("127.0.0.1:9090").parse().expect("invalid socket addr");
-    let fjoin_msg = ForwardJoin::new(&sock_addr, arwl, prwl, ttl);
-    let vec = Vec::new();
-    let mut writer = BufferedWriter::new(vec);
-    let result = fjoin_msg.serialize(&mut writer, &sock_addr);
-    
-    let vec = writer.into_inner();
-    let mut reader = MemReader::new(vec);
-    let header = reader.read_u8().ok().expect("failed to read the header");
-    let return_fjoin_msg = ForwardJoin::deserialize(&mut reader).ok().expect("failed to parse socket addr");
-    assert!(return_fjoin_msg.originator.eq(&sock_addr));
-    assert_eq!(return_fjoin_msg.arwl, arwl);
-    assert_eq!(return_fjoin_msg.prwl, prwl);
-    assert_eq!(return_fjoin_msg.ttl, ttl);
-}
-
 #[derive(Copy,Show)]
 pub struct Disconnect;
 impl Disconnect {
@@ -226,7 +201,7 @@ impl Disconnect {
 }
 impl Serializable for Disconnect {
     fn serialize(&self, writer: &mut Writer, sender: &SocketAddr) -> IoResult<usize> { 
-        Header::new(sender, HPV_MSG_ID_DISCONNECT).serailize(writer)
+        Header::new(sender, HPV_MSG_ID_DISCONNECT).serialize(writer)
     }
 }
 
@@ -239,7 +214,7 @@ impl JoinAck {
 }
 impl Serializable for JoinAck {
     fn serialize(&self, writer: &mut Writer, sender: &SocketAddr) -> IoResult<usize> {
-        Header::new(sender, HPV_MSG_ID_JOIN_ACK).serailize(writer)
+        Header::new(sender, HPV_MSG_ID_JOIN_ACK).serialize(writer)
     }
 }
 
@@ -265,11 +240,10 @@ impl NeighborRequest {
     }
 }
 impl Serializable for NeighborRequest {
-
     fn serialize(&self, writer: &mut Writer, sender: &SocketAddr) -> IoResult<usize> {
         let mut cnt = 0;
         let header = Header::new(sender, HPV_MSG_ID_NEIGHBOR_REQUEST);
-        match header.serailize(writer) {
+        match header.serialize(writer) {
             Ok(c) => cnt += c,
             Err(e) => return Err(e),
         }
@@ -307,7 +281,7 @@ impl Serializable for NeighborResponse {
     fn serialize(&self, writer: &mut Writer, sender: &SocketAddr) -> IoResult<usize> {
         let mut cnt = 0;
         let header = Header::new(sender, HPV_MSG_ID_NEIGHBOR_RESPONSE);
-        match header.serailize(writer) {
+        match header.serialize(writer) {
             Ok(c) => cnt += c,
             Err(e) => return Err(e),
         }
@@ -344,7 +318,7 @@ impl Serializable for Shuffle {
     fn serialize(&self, writer: &mut Writer, sender: &SocketAddr) -> IoResult<usize> {
         let mut cnt = 0;
         let header = Header::new(sender, HPV_MSG_ID_SHUFFLE);
-        match header.serailize(writer) {
+        match header.serialize(writer) {
             Ok(c) => cnt += c,
             Err(e) => return Err(e),
         }
@@ -413,7 +387,7 @@ impl Serializable for ShuffleReply {
     fn serialize(&self, writer: &mut Writer, sender: &SocketAddr) -> IoResult<usize> {
         let mut cnt = 0;
         let header = Header::new(sender, HPV_MSG_ID_SHUFFLE_REPLY);
-        match header.serailize(writer) {
+        match header.serialize(writer) {
             Ok(c) => cnt += c,
             Err(e) => return Err(e),
         }
@@ -428,5 +402,68 @@ impl Serializable for ShuffleReply {
             Err(e) => return Err(e),
         }
         Ok(cnt)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::{MemReader,BufferedWriter};
+    use std::io::net::ip::{SocketAddr};
+    use super::*;
+
+    #[test]
+    fn test_socket_addr_serialization() {
+        let sock_addr: SocketAddr = ("76.0.0.2:4999").parse().expect("invalid socket addr");
+        let mut writer = BufferedWriter::new(Vec::with_capacity(32));
+        let result = serialize_socket_addr(&sock_addr, &mut writer);
+        let mut reader = MemReader::new(writer.into_inner());
+        let addr = match deserialize_socket_addr(&mut reader) {
+            Ok(a) => a,
+            _ => panic!(false), //note: i would prefer an assert here, but assert's return type does not match
+        };
+  
+        assert!(addr.eq(&sock_addr), "orig addr {}, return addr {}", sock_addr, addr);
+    }
+
+    #[test]
+    fn test_header_serialization() {
+        let sock_addr: SocketAddr = ("127.0.0.1:9090").parse().expect("invalid socket addr");
+        let id = 42u8;
+        let header = Header::new(&sock_addr, id);
+        
+        let mut writer = BufferedWriter::new(Vec::with_capacity(32));
+        let result = header.serialize(&mut writer);
+        let mut reader = MemReader::new(writer.into_inner());
+        let return_msg = match Header::deserialize(&mut reader) {
+            Ok(msg) => msg,
+            _ => panic!(false), //note: i would prefer an assert here, but assert's return type does not match
+        };
+  
+        assert!(return_msg.sender.eq(&sock_addr), "orig addr {}, return addr {}", return_msg.sender, sock_addr);
+        assert_eq!(return_msg.msg_id, id);
+    }
+
+    #[test]
+    fn test_forward_join_serialization() {
+        let arwl = 6u8;
+        let prwl = 3u8;
+        let ttl = 4u8;
+
+        let sock_addr: SocketAddr = ("127.94.0.1:9090").parse().expect("invalid socket addr");
+        let fjoin_msg = ForwardJoin::new(&sock_addr, arwl, prwl, ttl);
+        let mut writer = BufferedWriter::new(Vec::with_capacity(32));
+        let result = fjoin_msg.serialize(&mut writer, &sock_addr);
+        writer.flush();
+
+        let mut reader = MemReader::new(writer.into_inner());
+        let return_fjoin_msg = match deserialize(&mut reader).ok().unwrap() {
+            HyParViewMessage::ForwardJoinMessage(msg, addr) => msg,
+            _ => panic!(false), //note: i would prefer an assert here, but assert's return type does not match
+        };
+  
+        assert!(return_fjoin_msg.originator.eq(&sock_addr), "orig addr {}, return addr {}", return_fjoin_msg.originator, sock_addr);
+        assert_eq!(return_fjoin_msg.arwl, arwl);
+        assert_eq!(return_fjoin_msg.prwl, prwl);
+        assert_eq!(return_fjoin_msg.ttl, ttl);
     }
 }
