@@ -490,3 +490,63 @@ pub fn start_service(config: Arc<Config>) -> Sender<HyParViewMessage> {
     sender.clone()
 }
 
+mod tests {
+    use std::io::net::ip::{SocketAddr};
+    use super::*;
+
+    #[test]
+    #[should_fail]
+    fn contains_empty() {
+        let v: Vec<u32> = Vec::new();
+        let i = 42u32;
+        assert!(HyParViewContext::contains(&v, &i));
+    }
+
+    #[test]
+    fn contains_int() {
+        let i = 42u32;
+        let v = vec!(i, i + 44u32, i - 11u32);
+        assert!(HyParViewContext::contains(&v, &i));
+    }
+
+    #[test]
+    fn contains_addr() {
+        let sock_addr1: SocketAddr = ("7.0.0.2:4944").parse().expect("invalid socket addr");
+        let sock_addr2: SocketAddr = ("9.0.0.2:6899").parse().expect("invalid socket addr");
+        let sock_addr3: SocketAddr = ("76.66.0.2:22999").parse().expect("invalid socket addr");
+        let sock_addr4: SocketAddr = ("76.0.0.2:4449").parse().expect("invalid socket addr");
+        let sock_addr5: SocketAddr = ("76.0.3.2:4249").parse().expect("invalid socket addr");
+        let v = vec!(sock_addr1, sock_addr2, sock_addr3, sock_addr4, sock_addr5);
+        assert!(HyParViewContext::contains(&v, &sock_addr4));
+        assert!(HyParViewContext::contains(&v, &sock_addr2));
+        assert!(HyParViewContext::contains(&v, &sock_addr1));
+        assert!(HyParViewContext::contains(&v, &sock_addr5));
+        assert!(HyParViewContext::contains(&v, &sock_addr3));
+        let sock_addr6: SocketAddr = ("216.0.3.2:4049").parse().expect("invalid socket addr");
+        assert_eq!(false, HyParViewContext::contains(&v, &sock_addr6));
+    }
+
+    #[test]
+    fn index_of_addr() {
+        let sock_addr0: SocketAddr = ("7.0.0.2:4944").parse().expect("invalid socket addr");
+        let sock_addr1: SocketAddr = ("9.0.0.2:6899").parse().expect("invalid socket addr");
+        let sock_addr2: SocketAddr = ("76.66.0.2:22999").parse().expect("invalid socket addr");
+        let sock_addr3: SocketAddr = ("76.0.0.2:4449").parse().expect("invalid socket addr");
+        let sock_addr4: SocketAddr = ("76.0.3.2:4249").parse().expect("invalid socket addr");
+        let v = vec!(sock_addr0, sock_addr1, sock_addr2, sock_addr3, sock_addr4);
+        assert!(HyParViewContext::index_of(&v, &sock_addr4).is_some());
+        assert_eq!(HyParViewContext::index_of(&v, &sock_addr4).unwrap(), 4us);
+
+        assert!(HyParViewContext::index_of(&v, &sock_addr2).is_some());
+        assert_eq!(HyParViewContext::index_of(&v, &sock_addr2).unwrap(), 2us);
+        assert!(HyParViewContext::index_of(&v, &sock_addr1).is_some());
+        assert_eq!(HyParViewContext::index_of(&v, &sock_addr1).unwrap(), 1us);
+        assert!(HyParViewContext::index_of(&v, &sock_addr0).is_some());
+        assert_eq!(HyParViewContext::index_of(&v, &sock_addr0).unwrap(), 0us);
+        assert!(HyParViewContext::index_of(&v, &sock_addr3).is_some());
+        assert_eq!(HyParViewContext::index_of(&v, &sock_addr3).unwrap(), 3us);
+
+        let sock_addr6: SocketAddr = ("216.0.3.2:4049").parse().expect("invalid socket addr");
+        assert!(HyParViewContext::index_of(&v, &sock_addr6).is_none());
+    }
+}
