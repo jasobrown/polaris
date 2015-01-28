@@ -4,10 +4,11 @@
 #[macro_use] extern crate time;
 
 extern crate getopts;
+extern crate polaris;
 
-use config::Config;
 use getopts::{optopt,optflag,getopts,OptGroup,usage};
-use hyparview::messages::{deserialize,HyParViewMessage};
+use polaris::config::Config;
+use polaris::hyparview::messages::{deserialize,HyParViewMessage};
 use log::set_logger;
 use logger::LocalLogger;
 use std::io::{TcpListener,TcpStream,Acceptor,Listener};
@@ -16,8 +17,6 @@ use std::sync::Arc;
 use std::thread::Thread;
 use std::sync::mpsc::{Sender};
 
-mod config;
-mod hyparview;
 mod logger;
 
 fn main() {
@@ -32,7 +31,7 @@ fn main() {
     let listener = TcpListener::bind(config_cpy.local_addr);
     let mut acceptor = listener.listen();
 
-    let sender = hyparview::start_service(config_arc.clone());
+    let sender = polaris::hyparview::start_service(config_arc.clone());
 
     for conn in acceptor.incoming() {
         if conn.is_ok() {
@@ -49,7 +48,7 @@ fn main() {
 }
 
 fn handle_client(mut stream: TcpStream, sender: Sender<HyParViewMessage>) {
-    match hyparview::messages::deserialize(&mut stream) {
+    match polaris::hyparview::messages::deserialize(&mut stream) {
         Ok(msg) => {
             match sender.send(msg) {
                 Ok(_) => {},
