@@ -6,7 +6,7 @@
 extern crate getopts;
 extern crate polaris;
 
-use getopts::{optopt,optflag,getopts,OptGroup,usage};
+use getopts::{Options};
 use polaris::config::Config;
 use polaris::hyparview::messages::{deserialize,HyParViewMessage};
 use logger::LocalLogger;
@@ -68,11 +68,11 @@ impl Opts {
         let args: Vec<String> = os::args();
         let program = args[0].clone();
 
-        let opts = &[
-            optopt("c", "config", "(required) path to the central configuration file", ""),
-            optflag("h", "help", "print this help menu")
-        ];
-        let matches = match getopts(args.tail(), opts) {
+        let mut opts = Options::new();
+        opts.optopt("c", "config", "(required) path to the central configuration file", "");
+        opts.optflag("h", "help", "print this help menu");
+
+        let matches = match opts.parse(args.tail()) {
             Ok(m) => { m }
             Err(f) => { panic!(f.to_string()) }
         };
@@ -90,8 +90,8 @@ impl Opts {
         Opts { config_file : config_file }
     }
 
-    fn print_usage(program: &str, opts: &[OptGroup]) {
+    fn print_usage(program: &str, opts: Options) {
         let brief = format!("Usage: {} [options]", program);
-        print!("{}", usage(brief.as_slice(), opts));
+        println!("{}", opts.usage(brief.as_slice()));
     }
 }

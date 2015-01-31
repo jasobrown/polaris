@@ -2,21 +2,21 @@ extern crate log;
 extern crate time;
 
 use std::sync::Arc;
-use config::Config;
 use log::{Log,LogLevel,LogLevelFilter,LogRecord,set_logger};
 use time::{now,strftime};
 
 use std::old_io::net::ip::{SocketAddr};
-use std::old_io::{File, Open, Write,USER_RWX};
-use std::os::tmpdir;
-use std::old_io::fs::{mkdir_recursive,PathExtensions};
-use std::sync::mpsc::{channel,Sender,Receiver};
+//use std::old_io::{File, Open, Write,USER_RWX};
+//use std::os::tmpdir;
+//use std::old_io::fs::{mkdir_recursive,PathExtensions};
+//use std::sync::mpsc::{channel,Sender,Receiver};
 use std::thread::Thread;
-use std::old_io::{LineBufferedWriter,stdio,stderr};
+//use std::old_io::{LineBufferedWriter,stdio,stderr};
+use std::old_io::{stderr};
 
 // based on http://joshitech.blogspot.com/2014/12/rust-customer-logger.html
 
-pub fn start_service(config: &Config) {
+pub fn start_service() {
     set_logger(|max_log_level| {
         //TODO: actually get real log level from somwhere
         let log_level = LogLevelFilter::Debug;
@@ -42,7 +42,7 @@ impl Log for LocalLogger {
         };
 
         let out = stderr();
-        let entry = println!("{} [{}] {} {}:{} (line {}) {}",
+        println!("{} [{}] {} {}:{} (line {}) {}",
                         time::strftime("%Y-%m-%d %H:%M:%S.%f %Z", &time::now()).unwrap(),
                         thread_name,
                         record.level(),
