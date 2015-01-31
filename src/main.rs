@@ -9,9 +9,8 @@ extern crate polaris;
 use getopts::{optopt,optflag,getopts,OptGroup,usage};
 use polaris::config::Config;
 use polaris::hyparview::messages::{deserialize,HyParViewMessage};
-use log::set_logger;
 use logger::LocalLogger;
-use std::io::{TcpListener,TcpStream,Acceptor,Listener};
+use std::old_io::{TcpListener,TcpStream,Acceptor,Listener};
 use std::os;
 use std::sync::Arc;
 use std::thread::Thread;
@@ -20,7 +19,7 @@ use std::sync::mpsc::{Sender};
 mod logger;
 
 fn main() {
-    set_logger(Box::new(LocalLogger::new()));
+    logger::start_service();
     debug!("starting polaris");
     let opts = Opts::read_opts();
     let config = Box::new(Config::load_config(opts.config_file.as_slice()));

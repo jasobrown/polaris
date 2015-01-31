@@ -1,6 +1,6 @@
-use std::io::{BufferedReader,IoError};
-use std::io::net::ip::{SocketAddr};
-use std::io::{File};
+use std::old_io::{BufferedReader,IoError};
+use std::old_io::net::ip::{SocketAddr};
+use std::old_io::{File};
 
 pub struct Config {
     pub local_addr: SocketAddr,

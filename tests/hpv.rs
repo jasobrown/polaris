@@ -1,8 +1,6 @@
 extern crate polaris;
 
-use hyparview::{HyParViewContext};
-
-mod hyparview;
+use polaris::hyparview::{HyParViewContext};
 
 fn u() {
     let e = HyParViewContext::new();

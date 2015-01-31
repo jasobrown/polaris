@@ -1,11 +1,9 @@
 use config::Config;
 use hyparview::messages::{HyParViewMessage,Serializable,Disconnect,ForwardJoin,Join,JoinAck,NeighborRequest,NeighborResponse,Priority,Result,Shuffle,ShuffleReply};
-use log::set_logger;
-use logger::LocalLogger;
 use shipper::{Shipper,SocketShipper};
-use std::io::Timer;
-use std::io::net::ip::SocketAddr;
-use std::io::net::tcp::TcpStream;
+use std::old_io::Timer;
+use std::old_io::net::ip::SocketAddr;
+use std::old_io::net::tcp::TcpStream;
 use std::rand;
 use std::sync::{Arc,RwLock};
 use std::time::Duration;
@@ -445,7 +443,6 @@ pub fn start_service(config: Arc<Config>) -> Sender<HyParViewMessage> {
 
     let config_clone = config.clone();
     Builder::new().name("hpv-event".to_string()).spawn(move || {
-        set_logger(Box::new(LocalLogger::new()));
         HyParViewContext::new(config_clone).listen(receiver);
     });
 
@@ -460,7 +457,7 @@ pub fn start_service(config: Arc<Config>) -> Sender<HyParViewMessage> {
 }
 
 mod tests {
-    use std::io::net::ip::{SocketAddr};
+    use std::old_io::net::ip::{SocketAddr};
     use super::*;
 
 }

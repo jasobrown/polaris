@@ -2,20 +2,20 @@
 name = "polaris"
 version = "0.0.1"
 dependencies = [
- "getopts 0.1.4 (git+https://github.com/rust-lang/getopts.git)",
- "log 0.1.10 (git+https://github.com/rust-lang/log.git)",
- "time 0.1.14 (git+https://github.com/rust-lang/time.git)",
+ "getopts 0.2.0 (git+https://github.com/rust-lang/getopts.git)",
+ "log 0.2.1 (git+https://github.com/rust-lang/log.git)",
+ "time 0.1.15 (git+https://github.com/rust-lang/time.git)",
 ]
 
 [[package]]
 name = "gcc"
-version = "0.1.6"
+version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "getopts"
-version = "0.1.4"
-source = "git+https://github.com/rust-lang/getopts.git#c39d688c9fb9ed2aeb842c61e38823a9181678f6"
+version = "0.2.0"
+source = "git+https://github.com/rust-lang/getopts.git#b96e50fb54bc3ce7cce8d06c7b68037bf655da02"
 
 [[package]]
 name = "libc"
@@ -24,23 +24,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "log"
-version = "0.1.10"
-source = "git+https://github.com/rust-lang/log.git#e0403e68758645ecfe79f3c3e93dbfbb9e34d400"
-dependencies = [
- "regex 0.1.10 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "regex"
-version = "0.1.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
+version = "0.2.1"
+source = "git+https://github.com/rust-lang/log.git#3ba35a979c5908d40a12c29a9b64f3d31fac0c9b"
 
 [[package]]
 name = "time"
-version = "0.1.14"
-source = "git+https://github.com/rust-lang/time.git#9012258dcbf6416909b57205b928c4a5f048881e"
+version = "0.1.15"
+source = "git+https://github.com/rust-lang/time.git#e216d0de7377a1ae5c8617f6e1a9f60dc61d7ec7"
 dependencies = [
- "gcc 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "gcc 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 

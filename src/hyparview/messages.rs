@@ -1,6 +1,6 @@
-use std::io::{IoError,IoErrorKind,IoResult};
-use std::io::net::ip::{Ipv4Addr,SocketAddr};
-use std::io::net::tcp::{TcpStream};
+use std::old_io::{IoError,IoErrorKind,IoResult};
+use std::old_io::net::ip::{Ipv4Addr,SocketAddr};
+use std::old_io::net::tcp::{TcpStream};
 
 // TODO: need a much better system for identifying the messages (by type) than this simple hard-coded list, but wtf...
 static HPV_MSG_ID_JOIN: u8 = 0;
@@ -407,8 +407,8 @@ impl Serializable for ShuffleReply {
 
 #[cfg(test)]
 mod tests {
-    use std::io::{MemReader,BufferedWriter};
-    use std::io::net::ip::{SocketAddr};
+    use std::old_io::{MemReader,BufferedWriter};
+    use std::old_io::net::ip::{SocketAddr};
     use super::*;
 
     #[test]

@@ -1,6 +1,6 @@
 use hyparview::messages::{Serializable};
-use std::io::net::ip::SocketAddr;
-use std::io::net::tcp::TcpStream;
+use std::old_io::net::ip::SocketAddr;
+use std::old_io::net::tcp::TcpStream;
 use std::time::Duration;
 
 pub trait Shipper {
