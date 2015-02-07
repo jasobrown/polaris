@@ -1,6 +1,6 @@
+use shipper::Serializable;
 use std::old_io::{IoError,IoErrorKind,IoResult};
 use std::old_io::net::ip::{Ipv4Addr,SocketAddr};
-use std::old_io::net::tcp::{TcpStream};
 
 // TODO: need a much better system for identifying the messages (by type) than this simple hard-coded list, but wtf...
 static HPV_MSG_ID_JOIN: u8 = 0;
@@ -12,19 +12,19 @@ static HPV_MSG_ID_NEIGHBOR_RESPONSE: u8 = 5;
 static HPV_MSG_ID_SHUFFLE: u8 = 6;
 static HPV_MSG_ID_SHUFFLE_REPLY: u8 = 7;
 
-#[derive(Copy,Show,PartialEq)]
+#[derive(Copy,Debug,PartialEq)]
 pub enum Priority {
     High,
     Low
 }
 
-#[derive(Copy,Show)]
+#[derive(Copy,Debug)]
 pub enum Result {
     Accept,
     Reject
 }
 
-#[derive(Show)]
+#[derive(Debug)]
 pub enum HyParViewMessage {
     JoinMessage(Join,SocketAddr),
     ForwardJoinMessage(ForwardJoin,SocketAddr),
@@ -39,10 +39,6 @@ pub enum HyParViewMessage {
     JoinBegin,
     NextShuffleRound,
     PeerDisconnect(SocketAddr),
-}
-
-pub trait Serializable {
-    fn serialize(&self, writer: &mut Writer, sender: &SocketAddr) -> IoResult<usize>;
 }
 
 /// top-level function for serializing a HyParView message.
@@ -65,6 +61,7 @@ pub fn deserialize(reader: &mut Reader) -> IoResult<HyParViewMessage> {
     }
 }
 
+#[derive(Copy,Debug)]
 pub struct Header {
     sender: SocketAddr,
     msg_id: u8,
@@ -130,7 +127,7 @@ pub fn deserialize_socket_addr(reader: &mut Reader) -> IoResult<SocketAddr> {
     Ok(sa)
 }
 
-#[derive(Copy,Show)]
+#[derive(Copy,Debug)]
 //TODO: add a message uuid so we can register a callback (to make sure the join message gets a reponse, else resend the request)
 pub struct Join;
 impl Join {
@@ -144,7 +141,7 @@ impl Serializable for Join {
     }
 }
 
-#[derive(Copy,Show)]
+#[derive(Copy,Debug)]
 pub struct ForwardJoin {
     pub originator: SocketAddr,
     pub arwl: u8,
@@ -192,7 +189,7 @@ impl Serializable for ForwardJoin {
     }
 }
 
-#[derive(Copy,Show)]
+#[derive(Copy,Debug)]
 pub struct Disconnect;
 impl Disconnect {
     pub fn new() -> Disconnect {
@@ -205,7 +202,7 @@ impl Serializable for Disconnect {
     }
 }
 
-#[derive(Copy,Show)]
+#[derive(Copy,Debug)]
 pub struct JoinAck;
 impl JoinAck {
     pub fn new() -> JoinAck {
@@ -218,7 +215,7 @@ impl Serializable for JoinAck {
     }
 }
 
-#[derive(Copy,Show)]
+#[derive(Copy,Debug)]
 pub struct NeighborRequest {
     pub priority: Priority,
 }
@@ -258,7 +255,7 @@ impl Serializable for NeighborRequest {
     }
 }
 
-#[derive(Copy,Show)]
+#[derive(Copy,Debug)]
 pub struct NeighborResponse {
     pub result: Result,
 }
@@ -296,7 +293,7 @@ impl Serializable for NeighborResponse {
     }
 }
 
-#[derive(Show)]
+#[derive(Debug)]
 pub struct Shuffle {
     pub originator: SocketAddr,
     pub nodes: Vec<SocketAddr>,
@@ -366,7 +363,7 @@ fn serialize_socket_addrs(nodes: &Vec<SocketAddr>, writer: &mut Writer) -> IoRes
     Ok(cnt)
 }
 
-#[derive(Show)]
+#[derive(Debug)]
 pub struct ShuffleReply {
     /// return the vector of nodes the originator first sent out; that way the originator does not need to keep track of that.
     pub sent_nodes: Vec<SocketAddr>,
@@ -407,13 +404,14 @@ impl Serializable for ShuffleReply {
 
 #[cfg(test)]
 mod tests {
+    use shipper::Serializable;
     use std::old_io::{MemReader,BufferedWriter};
     use std::old_io::net::ip::{SocketAddr};
     use super::*;
 
     #[test]
     fn test_socket_addr_serialization() {
-        let sock_addr: SocketAddr = ("76.0.0.2:4999").parse().expect("invalid socket addr");
+        let sock_addr: SocketAddr = ("76.0.0.2:4999").parse().unwrap();
         let mut writer = BufferedWriter::new(Vec::with_capacity(32));
         let result = serialize_socket_addr(&sock_addr, &mut writer);
         let mut reader = MemReader::new(writer.into_inner());
@@ -427,7 +425,7 @@ mod tests {
 
     #[test]
     fn test_header_serialization() {
-        let sock_addr: SocketAddr = ("127.0.0.1:9090").parse().expect("invalid socket addr");
+        let sock_addr: SocketAddr = ("127.0.0.1:9090").parse().unwrap();
         let id = 42u8;
         let header = Header::new(&sock_addr, id);
         
@@ -449,7 +447,7 @@ mod tests {
         let prwl = 3u8;
         let ttl = 4u8;
 
-        let sock_addr: SocketAddr = ("127.94.0.1:9090").parse().expect("invalid socket addr");
+        let sock_addr: SocketAddr = ("127.94.0.1:9090").parse().unwrap();
         let fjoin_msg = ForwardJoin::new(&sock_addr, arwl, prwl, ttl);
         let mut writer = BufferedWriter::new(Vec::with_capacity(32));
         let result = fjoin_msg.serialize(&mut writer, &sock_addr);

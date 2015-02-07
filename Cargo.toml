@@ -7,13 +7,9 @@ authors = ["Jason Brown <jasedbrown@gmail.com>"]
 [lib]
 name = "polaris"
 
-[dependencies.log]
-#path = "../rust/rust-log"
-git = "https://github.com/rust-lang/log.git"
+[dependencies]
+getopts = "0.2.3"
+log = "0.2.2"
+rand = "0.1.2"
+time = "0.1.16"
 
-[dependencies.time]
-#path = "../rust/rust-time"
-git = "https://github.com/rust-lang/time.git"
-
-[dependencies.getopts]
-git = "https://github.com/rust-lang/getopts.git"

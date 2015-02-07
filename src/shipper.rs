@@ -1,12 +1,17 @@
-use hyparview::messages::{Serializable};
+use std::old_io::{IoResult};
 use std::old_io::net::ip::SocketAddr;
 use std::old_io::net::tcp::TcpStream;
 use std::time::Duration;
+
+pub trait Serializable {
+    fn serialize(&self, writer: &mut Writer, sender: &SocketAddr) -> IoResult<usize>;
+}
 
 pub trait Shipper {
     fn ship(&self, msg: &Serializable, dest: &SocketAddr) -> bool;
 }
 
+#[derive(Copy)]
 pub struct SocketShipper {
     pub local_addr: SocketAddr,
 }

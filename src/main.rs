@@ -1,4 +1,8 @@
 #![feature(slicing_syntax)]
+#![feature(env)]
+#![feature(io)]
+#![feature(core)]
+#![feature(std_misc)] 
 
 #[macro_use] extern crate log;
 #[macro_use] extern crate time;
@@ -9,14 +13,12 @@ extern crate polaris;
 use getopts::{Options};
 use polaris::config::Config;
 use polaris::hyparview::messages::{deserialize,HyParViewMessage};
-use logger::LocalLogger;
+use polaris::logger;
 use std::old_io::{TcpListener,TcpStream,Acceptor,Listener};
-use std::os;
+use std::env;
 use std::sync::Arc;
 use std::thread::Thread;
 use std::sync::mpsc::{Sender};
-
-mod logger;
 
 fn main() {
     logger::start_service();
@@ -44,6 +46,8 @@ fn main() {
             error!("failure with acceptor");
         }
     }
+
+    polaris::plumtree::start_service();
 }
 
 fn handle_client(mut stream: TcpStream, sender: Sender<HyParViewMessage>) {
@@ -65,19 +69,17 @@ struct Opts {
 }
 impl Opts {
     fn read_opts() -> Opts {
-        let args: Vec<String> = os::args();
-        let program = args[0].clone();
-
+        let args = env::args();
         let mut opts = Options::new();
         opts.optopt("c", "config", "(required) path to the central configuration file", "");
         opts.optflag("h", "help", "print this help menu");
 
-        let matches = match opts.parse(args.tail()) {
+        let matches = match opts.parse(args) {
             Ok(m) => { m }
-            Err(f) => { panic!(f.to_string()) }
+            Err(f) => { panic!("{:?}", f) }
         };
         if matches.opt_present("h") {
-            Opts::print_usage(program.as_slice(), opts);
+            Opts::print_usage(opts);
             // TODO: a more elegant way to exit to program
             panic!("exiting after help");
         }
@@ -90,8 +92,8 @@ impl Opts {
         Opts { config_file : config_file }
     }
 
-    fn print_usage(program: &str, opts: Options) {
-        let brief = format!("Usage: {} [options]", program);
+    fn print_usage(opts: Options) {
+        let brief = format!("Usage: [options]");
         println!("{}", opts.usage(brief.as_slice()));
     }
 }

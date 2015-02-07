@@ -28,22 +28,22 @@ impl Config {
         let path = Path::new(file_name);
         let mut reader = BufferedReader::new(File::open(&path));
 
-        let line = reader.read_line().ok().expect("Failed to read line");
-        let local_addr: SocketAddr = line.as_slice().trim().parse().expect("malformed address");
+        let line = reader.read_line().ok().unwrap();
+        let local_addr: SocketAddr = line.as_slice().trim().parse().unwrap();
 
         let mut contact_nodes = Vec::new();
-        let line = reader.read_line().ok().expect("Failed to read line");
+        let line = reader.read_line().ok().unwrap();
         let v: Vec<&str> = line.split_str(",").collect();
         for addr in v.iter() {
-            contact_nodes.push(addr.as_slice().trim().parse().expect("malformed address"));
+            contact_nodes.push(addr.as_slice().trim().parse().unwrap());
         }
 
         let (arwl, prwl) = Config::read_int_pair(&mut reader);
         let (active_size, passive_size) = Config::read_int_pair(&mut reader);
-        let line = reader.read_line().ok().expect("Failed to read line");
-        let shuffle_period: u8 = line.as_slice().trim().parse().expect("expected an int");
+        let line = reader.read_line().ok().unwrap();
+        let shuffle_period: u8 = line.as_slice().trim().parse().unwrap();
         let (shuffle_active_cnt, shuffle_passive_count) = Config::read_int_pair(&mut reader);
-        let shuffle_walk_length: u8 = line.as_slice().trim().parse().expect("expected an int");
+        let shuffle_walk_length: u8 = line.as_slice().trim().parse().unwrap();
 
         Config { local_addr: local_addr, contact_nodes: contact_nodes, active_random_walk_length: arwl, passive_random_walk_length: prwl,
                  active_view_size: active_size as usize, passive_view_size: passive_size as usize, shuffle_period_seconds: shuffle_period, 
@@ -51,10 +51,10 @@ impl Config {
     }
 
     fn read_int_pair(reader: &mut BufferedReader<Result<File, IoError>>) -> (u8, u8) {
-        let line = reader.read_line().ok().expect("Failed to read line");
+        let line = reader.read_line().ok().unwrap();
         let v: Vec<&str> = line.trim().split_str(",").collect();
-        let val0: u8 = v[0].parse().expect("expected an int");
-        let val1: u8 = v[1].parse().expect("expected an int");
+        let val0: u8 = v[0].parse().unwrap();
+        let val1: u8 = v[1].parse().unwrap();
         (val0, val1)
     }
 }

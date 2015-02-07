@@ -1,3 +1,3 @@
-fn start_service() {
+pub fn start_service() {
     println!("starting plumtree");
 }
