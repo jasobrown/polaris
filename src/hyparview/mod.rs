@@ -10,13 +10,12 @@ use std::thread::{Builder};
 use std::vec::Vec;
 use std::sync::mpsc::{channel,Receiver,Sender};
 
-
 pub mod messages;
 
 pub struct HyParViewContext {
     config: Arc<Config>,
-    active_view: Box<Vec<SocketAddr>>,
-    passive_view: Box<Vec<SocketAddr>>,
+    pub active_view: Box<Vec<SocketAddr>>,
+    pub passive_view: Box<Vec<SocketAddr>>,
 }
 impl HyParViewContext {
     pub fn new(config: Arc<Config>) -> HyParViewContext {
@@ -70,18 +69,23 @@ impl HyParViewContext {
             return;
         }
 
-        let forward_join = ForwardJoin::new(sender, self.config.active_random_walk_length, self.config.passive_random_walk_length, self.config.active_random_walk_length);
-        if self.active_view.len() == 0 {
-            info!("adding joining node to this node's active_view: {}", &sender);
-            self.add_to_active_view(sender, shipper);
-            info!("about to ship join ack to: {}", &sender);
-            shipper.ship(&JoinAck::new(), sender);
-        } else {
-            for peer in self.active_view.iter() { 
-                info!("sending forward join to {} for {}", peer, &sender);
-                shipper.ship(&forward_join, peer);
+        match self.active_view.len() {
+            0 => {
+                info!("adding joining node to this node's active_view: {}", &sender);
+                self.add_to_active_view(sender, shipper);
+                info!("about to ship join ack to: {}", &sender);
+                shipper.ship(&JoinAck::new(), sender)
+            },
+            _ => {
+                let forward_join = ForwardJoin::new(sender, self.config.active_random_walk_length, self.config.passive_random_walk_length, 
+                                                    self.config.active_random_walk_length);
+                for peer in self.active_view.iter() { 
+                    info!("sending forward join to {} for {}", peer, &sender);
+                    shipper.ship(&forward_join, peer);
+                }
+                true
             }
-        }
+        };
     }
 
     fn handle_forward_join(&mut self, msg: &ForwardJoin, sender: &SocketAddr, shipper: &mut Shipper) {

@@ -1,5 +1,6 @@
-#![feature(collections)]
+#![feature(core)]
 #![feature(io)]
+#![feature(std_misc)]
 
 #[macro_use] extern crate log;
 extern crate polaris;
@@ -11,9 +12,11 @@ use polaris::shipper::{Serializable,Shipper};
 use std::collections::HashMap;
 use std::old_io::{MemReader,BufferedWriter,IoResult};
 use std::old_io::net::ip::{SocketAddr};
+use std::old_io::timer::Timer;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{channel,Sender};
+use std::sync::mpsc::{channel,Sender,Receiver};
+use std::time::Duration;
 
 struct SimpleShipper {
     // a cruddy way around having mutable state in a struct -- yes, i need to learn more....
@@ -43,8 +46,10 @@ impl InMemoryShipper {
 }
 impl Shipper for InMemoryShipper {
     fn ship(&self, msg: &Serializable, dest: &SocketAddr) -> bool {
+        println!("InMemoryShipper.ship invoked!!");
         match convert(msg, &self.local_addr) {
             Ok(hpv_msg) => {
+                println!("InMemoryShipper - converted msg {:?} for {}", hpv_msg, dest);
                 match self.sender.send((hpv_msg, *dest)) {
                     Ok(_) => assert!(true),
                     Err(e) => assert!(false, format!("failed to convert outbound message to an event: {}", e)),
@@ -105,6 +110,7 @@ fn one_node_join_seed_is_other() {
     assert!(shipper.invoked.load(Ordering::Relaxed));
 }
 
+/// test out the entire join sequence between two nodes, one is a seed, and the other not.
 #[test]
 fn two_node_join() {
     let seed_addr: SocketAddr = ("127.0.0.1:9090").parse().unwrap();
@@ -124,21 +130,40 @@ fn two_node_join() {
     peer.join(&mut starter_shipper);
     nodes.insert(peer.config().local_addr, peer);
 
-    warn!("about to receive a msg!!!!"); 
-    match receiver.recv() {
-        Ok((msg, dest)) => {
-            warn!("received a msg!!!!");
-            match nodes.get_mut(&dest) {
-                Some(mut ctx) => {
-                    let mut shipper = InMemoryShipper::new(dest, sender.clone());
-                    ctx.receive_event(msg, &mut shipper);
-                },
-                None => assert!(false, format!("could not find dest addr in dispatch map: {}", dest)),
+    dispatch(&mut nodes, sender, receiver);
+
+    let seed = nodes.get(&seed_addr).unwrap();
+    assert_eq!(1, seed.active_view.len());
+    assert!(seed.active_view[0].eq(&peer_addr));
+
+    let peer = nodes.get(&peer_addr).unwrap();
+    assert_eq!(1, peer.active_view.len());
+    assert!(peer.active_view[0].eq(&seed_addr));
+}
+
+fn dispatch(nodes: &mut HashMap<SocketAddr, HyParViewContext>, sender: Sender<(HyParViewMessage, SocketAddr)>, receiver: Receiver<(HyParViewMessage, SocketAddr)>) {
+    let mut timer = Timer::new().unwrap();
+    let timeout = timer.oneshot(Duration::seconds(1));
+
+    loop {
+        select! {
+            _ = timeout.recv() => break,
+            r = receiver.recv() => {
+                match r {
+                    Ok((msg, dest)) => {
+                        println!("about to dispatch a msg: {:?} for {}", msg, dest);
+                        match nodes.get_mut(&dest) {
+                            Some(mut ctx) => {
+                                println!("dispatching to {}", dest);
+                                let mut shipper = InMemoryShipper::new(dest, sender.clone());
+                                ctx.receive_event(msg, &mut shipper);
+                            },
+                            None => assert!(false, format!("could not find dest addr in dispatch map: {}", dest)),
+                        }
+                    },
+                    Err(e) => assert!(false, "failed to get message form channel: {:?}", e),
+                }
             }
-        },
-        _ => (),
+        }
     }
-
-
-    // next, make sure seed has peer in active list
 }
