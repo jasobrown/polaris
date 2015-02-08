@@ -3,7 +3,7 @@ use hyparview::messages::{HyParViewMessage,Disconnect,ForwardJoin,Join,JoinAck,N
 use shipper::{Shipper,SocketShipper};
 use std::old_io::Timer;
 use std::old_io::net::ip::SocketAddr;
-use rand::random;
+use rand::{thread_rng,Rng};
 use std::sync::{Arc};
 use std::time::Duration;
 use std::thread::{Builder};
@@ -12,8 +12,9 @@ use std::sync::mpsc::{channel,Receiver,Sender};
 
 pub mod messages;
 
+/// fields are public for testing putposes only!
 pub struct HyParViewContext {
-    config: Arc<Config>,
+    pub config: Arc<Config>,
     pub active_view: Box<Vec<SocketAddr>>,
     pub passive_view: Box<Vec<SocketAddr>>,
 }
@@ -27,6 +28,7 @@ impl HyParViewContext {
         }
     }
 
+    /// Central event dispatcher for the hyparview module
     pub fn receive_event(&mut self, event: HyParViewMessage, shipper: &mut Shipper) {
         match event {
             HyParViewMessage::JoinBegin => self.join(shipper),
@@ -79,10 +81,13 @@ impl HyParViewContext {
             _ => {
                 let forward_join = ForwardJoin::new(sender, self.config.active_random_walk_length, self.config.passive_random_walk_length, 
                                                     self.config.active_random_walk_length);
-                for peer in self.active_view.iter() { 
+                let mut x = 0;
+                for peer in self.active_view.iter() {
+                    x += 1;
                     info!("sending forward join to {} for {}", peer, &sender);
                     shipper.ship(&forward_join, peer);
                 }
+                assert_eq!(x, self.active_view.len());
                 true
             }
         };
@@ -90,32 +95,37 @@ impl HyParViewContext {
 
     fn handle_forward_join(&mut self, msg: &ForwardJoin, sender: &SocketAddr, shipper: &mut Shipper) {
         debug!("in handle_forward_join for {} from {}, ttl: {}", msg.originator, sender, msg.ttl);
+        if msg.originator.eq(&self.config.local_addr) {
+            // TODO: handle this better
+            warn!("got forward join to self!!");
+            self.join(shipper);
+        }
+
         // possibly take the request, unless the current node is the one that originated it (damn data races in distributed systems!)
-        if (self.active_view.len() <= 1 || msg.ttl <= 0) && msg.originator.ne(&self.config.local_addr) {
+        if self.active_view.len() == 0 || (msg.ttl == 0 && self.active_view.iter().position(|&x| x.eq(&msg.originator)).is_none()) {
             info!("adding forwarded joining node to active_view: {}", &msg.originator);
             self.add_to_active_view(&msg.originator, shipper);
             shipper.ship(&JoinAck::new(), &msg.originator);
             return;
         } 
 
-        let mut ttl = msg.ttl - 1;
-        if msg.ttl == msg.prwl {
-            if msg.originator.ne(&self.config.local_addr) {
-                self.add_to_passive_view(&msg.originator);
-            } else { 
-                // bump the ttl so that when we forward the message, the originator can attempt to be added into the passive view on another node
-                ttl += 1;
-            }
+        let ttl = match msg.ttl {
+            0 => 0,
+            x => x - 1,
+        };
+
+        if ttl == msg.prwl {
+            self.add_to_passive_view(&msg.originator);
         }
 
         let forward_join = ForwardJoin::new(&msg.originator, msg.arwl, msg.prwl, ttl);
-        let filtered: Vec<SocketAddr> = self.active_view.iter().filter_map(|&x| if x.ne(sender) && x.ne(&msg.originator) {Some(x)} else {None}).collect();
+        let filtered: Vec<SocketAddr> = self.active_view.iter().filter_map(|&x| if x.eq(sender) || x.eq(&msg.originator) {None} else {Some(x)}).collect();
         let peer = match select_random(&filtered) {
             Some(p) => p,
-            None => &msg.originator, //if no other peers, just send back to the caller
+            None => sender, //if no other peers, just send back to the caller
         };
         debug!("sending next forward_join for {} to {}, ttl: {}", msg.originator, peer, ttl);
-        shipper.ship(&forward_join,peer);
+        shipper.ship(&forward_join, peer);
     }
 
     fn add_to_active_view(&mut self, peer: &SocketAddr, shipper: &mut Shipper) {
@@ -211,14 +221,20 @@ impl HyParViewContext {
         // hyparview event processing thread).
         // TODO: (maybe) add callback handler in case peer never responds (so we can all another). however, if that does trigger,
         // we should check if we've got a full active_view, and not bother with another NEIGHBOR request, in that case.
-        for i in range(idx, self.passive_view.len()) {
-            let neighbor = NeighborRequest::new(priority);
-            if shipper.ship(&neighbor, &self.passive_view[i]) {
-                return;
-            } else {
-                self.passive_view.remove(i);
-            }
-            idx += 1;
+        
+        match self.passive_view.len() {
+            0 => self.join(shipper),
+            _ => {
+                for i in range(idx, self.passive_view.len()) {
+                    let neighbor = NeighborRequest::new(priority);
+                    if shipper.ship(&neighbor, &self.passive_view[i]) {
+                        return;
+                    } else {
+                        self.passive_view.remove(i);
+                    }
+                    idx += 1;
+                }
+            },
         }
     }
 
@@ -250,11 +266,11 @@ impl HyParViewContext {
         debug!("start of next shuffle round: active_view {:?}, passive_view {:?}", &*self.active_view, &*self.passive_view);
         match self.active_view.len() {
             0 => self.join(shipper),
-            _ => self.do_shuffle(),
+            _ => self.shuffle(),
         }
     }
 
-    fn do_shuffle(&mut self) {
+    fn shuffle(&mut self) {
         debug!("in do_shuffle()");
         // let target_addr = select_random(&*self.active_view);
 
@@ -289,6 +305,7 @@ impl HyParViewContext {
         // nodes
     //}
 
+    #[allow(unused_variables)]
     fn handle_shuffle(&mut self, msg: Shuffle, sender: &SocketAddr) {
         debug!("in handle_shuffle");
         // { 
@@ -328,6 +345,7 @@ impl HyParViewContext {
     }
 
 
+    #[allow(unused_variables)]
     fn apply_shuffle(&mut self, nodes: &Vec<SocketAddr>, filter: &Vec<SocketAddr>) {
         // let mut filter_idx = 0;
         // let filter_len = filter.len();
@@ -403,100 +421,10 @@ impl HyParViewContext {
 // }
 
 pub fn select_random<'a, T>(v: &'a Vec<T>) -> Option<&'a T> {
-    if v.len() == 0 {
-        return None;
-    }
-    let rand: usize = random();
-    let idx = rand % v.len();
-    Some(&v[idx])
+    let mut rng = thread_rng();
+    rng.choose(v)
 }
 
-// note: you can more easily do this with a function & filter(), but if you need a vec, not an iterator,
-// you would to rip through the iterator to build that vec - thus yielding O(2n).
-// fn filter<'a, T: PartialEq>(v: &'a Vec<T>, filter: &Vec<T>) -> Vec<&'a T> {
-//     let mut filtered = Vec::with_capacity(v.len());
-//     for t in v.iter() {
-//         if filter.iter().find(|&x| x.eq(t)).is_none() {
-//             filtered.push(t);
-//         }
-//     }
-//     return filtered;
-// }
-
-// fn listen(initial_ctx: HyParViewContext, receiver: Receiver<HyParViewMessage>, shipper: Box<Shipper>) {
-//     let mut cur_ctx: &HyParViewContext = &initial_ctx;
-//     loop {
-//         // TODO: try_recv() does *not* block, and might be nice for a gentle shutdown of the listener
-//         // HOLY FUCK: somehow boxing the socketaddr (that comes form the context) makes the borrow checker happy. consuming vodka now
-//         let (ret_ctx, msgs) = match receiver.recv().unwrap() {
-//             HyParViewMessage::JoinBegin => join(cur_ctx),
-//             HyParViewMessage::JoinMessage(_,addr) => handle_join(cur_ctx, &addr),
-//             // HyParViewMessage::ForwardJoinMessage(msg,addr) => self.handle_forward_join(&msg, &addr),
-//             // HyParViewMessage::JoinAckMessage(_,addr) => self.handle_join_ack(&addr),
-//             // HyParViewMessage::DisconnectMessage(_,addr) => self.handle_disconnect(&addr),
-//             // HyParViewMessage::NeighborRequestMessage(msg,addr) => self.handle_neighbor_request(&msg, &addr),
-//             // HyParViewMessage::NeighborResponseMessage(msg,addr) => self.handle_neighbor_response(&msg, &addr),
-//             // HyParViewMessage::ShuffleMessage(msg,addr) => self.handle_shuffle(msg, &addr),
-//             // HyParViewMessage::ShuffleReplyMessage(msg,_) => self.handle_shuffle_reply(&msg),
-//             // HyParViewMessage::NextShuffleRound => self.handle_next_shuffle_round(),
-//             // HyParViewMessage::PeerDisconnect(addr) => self.handle_peer_failure(&addr),
-//             _ => panic!(""),
-//         };
-//         cur_ctx = ret_ctx;
-//         // hoestly, i have no idea how this works ... nor any idea wtf i'm doing here anymore :-/
-//         if msgs.is_some() {
-//             for &(ref msg, ref dest) in msgs.unwrap().iter() {
-//                 shipper.ship(&**msg, &**dest);
-//             }
-//         }
-//     }
-// }
-
-// /// call an arbitrary contact_node and send a 'JOIN' message
-// pub fn join<'a>(ctx: &'a HyParViewContext) -> (&HyParViewContext, Option<Vec<(Box<Serializable>, Box<SocketAddr>)>>)  {
-//     debug!("in join()");
-//     // TODO: add callback to ensure we got a response (Neighbor) msg from some peer
-//     let filtered: Vec<SocketAddr> = ctx.config.contact_nodes.iter().filter_map(|&x| if x.ne(&ctx.config.local_addr) {Some(x)} else {None}).collect();
-//     match select_random(&filtered) {
-//         Some(node) => {
-//             debug!("sending join request to {}", node);
-//             let mut msgs: Vec<(Box<Serializable>, Box<SocketAddr>)> = Vec::with_capacity(1us);
-//             msgs.push( (Box::new(Join::new()) as Box<Serializable>, Box::new(*node)) );
-//             (ctx, Some(msgs))
-//         },
-//         None => {
-//             info!("no unique contact node addresses available");
-//             (ctx, None)
-//         }
-//     }
-// }
-
-// /// a contact_node (or really any node, for that matter) receives a JOIN request from a node that wants to join the cluster.
-// /// the requesting could be a completely new node, or it could be a node that bounced or possibly it resent the JOIN request
-// /// due to timeout (because it didn't receive a response).
-// fn handle_join<'a>(ctx: &'a HyParViewContext, sender: &SocketAddr) -> (&HyParViewContext, Option<Vec<(Box<Serializable>, Box<SocketAddr>)>>) {
-//     debug!("in handle_join for sender {}", sender);
-//     if sender.eq(&ctx.config.config.local_addr) {
-//         warn!("something funky just happened: this node (a contact node) got a join request from itself, or another claiming the same IP:port");
-//         (ctx, None);
-//     }
-
-//     let forward_join = ForwardJoin::new(sender, ctx.config.active_random_walk_length, ctx.config.passive_random_walk_length, ctx.config.active_random_walk_length);
-//     let mut msgs: Vec<(Box<Serializable>, Box<SocketAddr>)> = Vec::with_capacity(1us);
-//     if ctx.active_view.len() == 0 {
-//         info!("adding joining node to this node's active_view: {}", &sender);
-//         ctx.add_to_active_view(sender);
-//         msgs.push( (Box::new(JoinAck::new()) as Box<Serializable>, Box::new(*sender)) );
-//     } else {
-//         for peer in ctx.active_view.iter() { 
-//             info!("sending forward join to {} for {}", peer, &sender);
-//             msgs.push(Box::new(forward_join) as Box<Serializable>, Box::new(*sender));
-//         }
-//     }
-// }
-
-
-/// Central event dispatcher for the hyparview module
 pub fn listen(ctx: &mut HyParViewContext, receiver: Receiver<HyParViewMessage>, shipper: &mut Shipper) {
     loop {
         // TODO: try_recv() does *not* block, and might be nice for a gentle shutdown of the listener
